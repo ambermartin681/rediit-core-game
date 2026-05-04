@@ -4,6 +4,12 @@ import { usePlayerStore } from '@/stores/playerStore'
 import { stellarClient } from '@/lib/stellarClient'
 import { axumClient } from '@/lib/axumClient'
 
+const S: React.CSSProperties = {
+  fontFamily: "'Press Start 2P', monospace",
+  WebkitFontSmoothing: 'none' as const,
+  letterSpacing: '0.05em',
+}
+
 function truncate(addr: string) {
   return `${addr.slice(0, 4)}...${addr.slice(-4)}`
 }
@@ -37,14 +43,19 @@ export function WalletButton() {
 
   if (isConnected && address) {
     return (
-      <div className="flex items-center gap-3">
-        <div className="glass rounded-xl px-4 py-2 border border-border">
-          <p className="font-mono text-xs text-accent">{truncate(address)}</p>
-          <p className="font-mono text-xs text-success">{xlmBalance.toFixed(2)} XLM</p>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+        <div style={{ background: '#000', border: '2px solid #FAB005', padding: '6px 12px' }}>
+          <div style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 10, color: '#FAB005' }}>
+            {truncate(address)}
+          </div>
+          <div style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 9, color: '#00A800' }}>
+            {xlmBalance.toFixed(2)} XLM
+          </div>
         </div>
         <button
           onClick={disconnect}
-          className="font-pixel text-xs text-danger border border-danger px-3 py-2 hover:bg-danger hover:text-white transition-colors"
+          className="nes-btn nes-btn-red"
+          style={{ fontSize: 7 }}
         >
           DISCONNECT
         </button>
@@ -53,15 +64,18 @@ export function WalletButton() {
   }
 
   return (
-    <div>
+    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8 }}>
       <button
         onClick={handleConnect}
         disabled={loading}
-        className="font-pixel text-sm bg-primary text-white px-6 py-3 pulse-glow hover:bg-purple-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+        className="nes-btn nes-btn-gold"
+        style={{ fontSize: 8 }}
       >
         {loading ? 'CONNECTING...' : 'CONNECT WALLET'}
       </button>
-      {error && <p className="text-danger text-xs font-mono mt-2">{error}</p>}
+      {error && (
+        <div style={{ ...S, fontSize: 6, color: '#E40058' }}>{error}</div>
+      )}
     </div>
   )
 }

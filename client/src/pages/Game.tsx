@@ -3,415 +3,571 @@ import { useNavigate } from 'react-router-dom'
 import { useWalletStore } from '@/stores/walletStore'
 import { usePlayerStore } from '@/stores/playerStore'
 import { useGameStore } from '@/stores/gameStore'
-import { GameLoop } from '@/engine/GameLoop'
-import { Renderer } from '@/engine/Renderer'
-import { InputManager } from '@/engine/InputManager'
-import { EntityManager } from '@/engine/EntityManager'
-import { Camera } from '@/engine/Camera'
-import { AudioManager } from '@/engine/AudioManager'
-import { aabbOverlap, withinRange } from '@/engine/CollisionSystem'
-import { drawPlayer, drawEnemy, drawOrb, drawParticle } from '@/engine/SpriteSheet'
 import { HUD } from '@/components/HUD'
 import { PauseMenu } from '@/components/PauseMenu'
 import { TokenMintModal } from '@/components/TokenMintModal'
 import { ItemShopModal } from '@/components/ItemShopModal'
 import { LeaderboardPanel } from '@/components/LeaderboardPanel'
+import { GameOver } from '@/components/GameOver'
+import { PipeTransition } from '@/components/PipeTransition'
+import { AudioManager } from '@/engine/AudioManager'
+import { ScrollCamera } from '@/engine/ScrollCamera'
+import {
+  createBody, stepPhysics,
+  type PhysicsBody, type TileRect,
+} from '@/engine/Physics'
+import {
+  LEVEL_MAP, TILE, TILE_SIZE, MAP_COLS, MAP_ROWS,
+  CANVAS_W, CANVAS_H, STELLAR_BLOCKS,
+  GOOMBA_SPAWNS, KOOPA_SPAWNS,
+} from '@/engine/LevelMap'
+import {
+  drawMario, drawGoomba, drawKoopa, drawCoin,
+  drawQuestionBlock, drawBrick, drawGround, drawPipe,
+  drawCloud, drawHill, drawFlag, drawMushroom, drawStarman,
+} from '@/engine/MarioSprites'
 
-const CANVAS_W = 800
-const CANVAS_H = 600
-const TILE_SIZE = 32
-const PLAYER_SPEED = 120
-const INTERACT_RANGE = 48
+const U = 4 // 1 game unit = 4 canvas px
+const TS = TILE_SIZE * U // tile size in canvas px = 64
 
-type Modal = 'none' | 'vault' | 'shop' | 'leaderboard'
+type Modal = 'none' | 'shop' | 'mint' | 'leaderboard'
 
-function truncate(addr: string) {
-  return `${addr.slice(0, 4)}...${addr.slice(-4)}`
+interface Enemy {
+  id: number
+  x: number
+  y: number
+  vx: number
+  alive: boolean
+  squished: boolean
+  squishTimer: number
+  type: 'goomba' | 'koopa'
+  inShell: boolean
+  frame: number
+}
+
+interface Particle {
+  x: number; y: number; vx: number; vy: number
+  life: number; maxLife: number; color: string; size: number
+}
+
+interface FloatingCoin {
+  x: number; y: number; vy: number; life: number
+}
+
+interface BlockAnim {
+  col: number; row: number; offsetY: number; dir: 1 | -1 | 0
 }
 
 export function Game() {
   const navigate = useNavigate()
   const { isConnected, address } = useWalletStore()
-  const { hp, sessionScore, activeBuffs, addScore, takeDamage, setPosition, tickBuffs } = usePlayerStore()
-  const { phase, map, orbs, enemies, scanlines, setPhase, collectOrb, setElapsedTime } = useGameStore()
+  const { hp, sessionScore, addScore, takeDamage, tickBuffs, activeBuffs } = usePlayerStore()
+  const { phase, setPhase } = useGameStore()
 
   const canvasRef = useRef<HTMLCanvasElement>(null)
-  const wrapperRef = useRef<HTMLDivElement>(null)
-  const loopRef = useRef<GameLoop | null>(null)
-  const rendererRef = useRef<Renderer | null>(null)
-  const inputRef = useRef<InputManager | null>(null)
-  const entitiesRef = useRef<EntityManager | null>(null)
-  const cameraRef = useRef<Camera | null>(null)
-  const audioRef = useRef<AudioManager | null>(null)
-  const flashRef = useRef(0) // damage flash timer
-  const interactPromptRef = useRef<string | null>(null)
+  const audioRef = useRef(new AudioManager())
+  const cameraRef = useRef(new ScrollCamera(CANVAS_W, CANVAS_H, MAP_COLS * TILE_SIZE, MAP_ROWS * TILE_SIZE))
+  const bodyRef = useRef<PhysicsBody>(createBody(3 * TILE_SIZE, 22 * TILE_SIZE))
+  const keysRef = useRef<Set<string>>(new Set())
+  const mapRef = useRef(LEVEL_MAP.map((r) => [...r]))
+  const enemiesRef = useRef<Enemy[]>([
+    ...GOOMBA_SPAWNS.map((s, i) => ({
+      id: i, x: s.x, y: s.y, vx: -1, alive: true,
+      squished: false, squishTimer: 0, type: 'goomba' as const, inShell: false, frame: 0,
+    })),
+    ...KOOPA_SPAWNS.map((s, i) => ({
+      id: 100 + i, x: s.x, y: s.y, vx: -1, alive: true,
+      squished: false, squishTimer: 0, type: 'koopa' as const, inShell: false, frame: 0,
+    })),
+  ])
+  const particlesRef = useRef<Particle[]>([])
+  const floatingCoinsRef = useRef<FloatingCoin[]>([])
+  const blockAnimsRef = useRef<BlockAnim[]>([])
+  const rafRef = useRef(0)
   const frameRef = useRef(0)
-  const elapsedRef = useRef(0)
+  const timerRef = useRef(400)
+  const timerTickRef = useRef(0)
+  const coinsRef = useRef(0)
+  const livesRef = useRef(3)
+  const deadTimerRef = useRef(0)
+  const pipeEnterRef = useRef(false)
+  const pipeEnterTimerRef = useRef(0)
+  const pendingModalRef = useRef<Modal>('none')
 
   const [modal, setModal] = useState<Modal>('none')
-  const [interactPrompt, setInteractPrompt] = useState<string | null>(null)
+  const [showPipe, setShowPipe] = useState(false)
   const [isDead, setIsDead] = useState(false)
+  const [gameOverFinal, setGameOverFinal] = useState(false)
+  const [hudCoins, setHudCoins] = useState(0)
+  const [hudTimer, setHudTimer] = useState(400)
+  const [hudLives, setHudLives] = useState(3)
 
-  // Guard: redirect if not connected
   useEffect(() => {
     if (!isConnected) navigate('/')
   }, [isConnected, navigate])
 
-  // Find special tile positions
-  const findTile = useCallback((type: number): { x: number; y: number } | null => {
-    for (let r = 0; r < map.length; r++) {
-      for (let c = 0; c < map[r].length; c++) {
-        if (map[r][c] === type) return { x: c * TILE_SIZE, y: r * TILE_SIZE }
-      }
-    }
-    return null
-  }, [map])
-
-  const vaultPos = findTile(2)
-  const shrinePos = findTile(3)
-  const shopPos = findTile(4)
-
-  // Build wall rects for collision
-  const wallRects = useRef<Array<{ x: number; y: number; width: number; height: number }>>([])
+  // Key handlers
   useEffect(() => {
-    wallRects.current = []
-    for (let r = 0; r < map.length; r++) {
-      for (let c = 0; c < map[r].length; c++) {
-        if (map[r][c] === 1) {
-          wallRects.current.push({ x: c * TILE_SIZE, y: r * TILE_SIZE, width: TILE_SIZE, height: TILE_SIZE })
-        }
+    const down = (e: KeyboardEvent) => {
+      keysRef.current.add(e.code)
+      e.preventDefault()
+    }
+    const up = (e: KeyboardEvent) => keysRef.current.delete(e.code)
+    window.addEventListener('keydown', down)
+    window.addEventListener('keyup', up)
+    return () => {
+      window.removeEventListener('keydown', down)
+      window.removeEventListener('keyup', up)
+    }
+  }, [])
+
+  const spawnParticles = useCallback((x: number, y: number, color: string, n: number) => {
+    for (let i = 0; i < n; i++) {
+      particlesRef.current.push({
+        x, y,
+        vx: (Math.random() - 0.5) * 3,
+        vy: -Math.random() * 4 - 1,
+        life: 30, maxLife: 30,
+        color, size: 4,
+      })
+    }
+  }, [])
+
+  const getTiles = useCallback((cx: number): TileRect[] => {
+    const col = Math.floor(cx / TILE_SIZE)
+    const colMin = Math.max(0, col - 2)
+    const colMax = Math.min(MAP_COLS - 1, col + 14)
+    const rects: TileRect[] = []
+    const map = mapRef.current
+    for (let r = 0; r < MAP_ROWS; r++) {
+      for (let c = colMin; c <= colMax; c++) {
+        const t = map[r][c]
+        if (t === TILE.SKY || t === TILE.COIN || t === TILE.MUSHROOM) continue
+        rects.push({ x: c * TILE_SIZE, y: r * TILE_SIZE, w: TILE_SIZE, h: TILE_SIZE, type: t })
       }
     }
-  }, [map])
+    return rects
+  }, [])
 
-  // Init engine
   useEffect(() => {
     const canvas = canvasRef.current
     if (!canvas || !isConnected) return
+    const ctx = canvas.getContext('2d')!
 
-    const renderer = new Renderer(canvas)
-    const input = new InputManager()
-    const audio = new AudioManager()
-    const camera = new Camera(CANVAS_W, CANVAS_H, map[0].length * TILE_SIZE, map.length * TILE_SIZE)
-    const entities = new EntityManager(
-      100, 100,
-      enemies.map((e) => ({ id: e.id, x: e.x, y: e.y, dx: e.dx, patrolMin: e.patrolMin, patrolMax: e.patrolMax })),
-      orbs.map((o) => ({ id: o.id, x: o.x, y: o.y, collected: o.collected })),
-    )
+    const loop = () => {
+      if (phase === 'paused') { rafRef.current = requestAnimationFrame(loop); return }
 
-    rendererRef.current = renderer
-    inputRef.current = input
-    audioRef.current = audio
-    cameraRef.current = camera
-    entitiesRef.current = entities
+      audioRef.current.resume()
+      frameRef.current++
+      const f = frameRef.current
+      const body = bodyRef.current
+      const cam = cameraRef.current
+      const map = mapRef.current
+      const keys = keysRef.current
 
-    const update = (dt: number) => {
-      if (phase === 'paused') return
-      const inp = inputRef.current!
-      const ent = entitiesRef.current!
-      const p = ent.player
-
-      audio.resume()
-
-      // Pause on ESC
-      if (inp.wasJustPressed('Escape')) {
+      // ESC → pause
+      if (keys.has('Escape')) {
+        keys.delete('Escape')
         setPhase('paused')
-        inp.flush()
+        rafRef.current = requestAnimationFrame(loop)
         return
       }
 
-      // Player movement
-      const hasSpeed = activeBuffs.some((b) => b.type === 'Speed')
-      const speed = PLAYER_SPEED * (hasSpeed ? 1.5 : 1)
-      let vx = 0
-      let vy = 0
-      if (inp.isDown('KeyW') || inp.isDown('ArrowUp'))    vy = -speed
-      if (inp.isDown('KeyS') || inp.isDown('ArrowDown'))  vy =  speed
-      if (inp.isDown('KeyA') || inp.isDown('ArrowLeft'))  vx = -speed
-      if (inp.isDown('KeyD') || inp.isDown('ArrowRight')) vx =  speed
-
-      // Normalize diagonal
-      if (vx !== 0 && vy !== 0) { vx *= 0.707; vy *= 0.707 }
-
-      p.isMoving = vx !== 0 || vy !== 0
-      if (vx < 0) p.direction = 'left'
-      if (vx > 0) p.direction = 'right'
-
-      // Animate frames
-      p.frameTimer += dt
-      if (p.isMoving) {
-        if (p.frameTimer > 0.12) { p.frame = (p.frame % 4 + 1) % 4; p.frameTimer = 0 }
-      } else {
-        if (p.frameTimer > 0.4) { p.frame = 4 + (p.frame % 2 === 0 ? 1 : 0); p.frameTimer = 0 }
-      }
-
-      // Move X then Y (separate axis collision)
-      let nx = p.x + vx * dt
-      let ny = p.y + vy * dt
-
-      // World bounds
-      nx = Math.max(0, Math.min(nx, map[0].length * TILE_SIZE - p.width))
-      ny = Math.max(0, Math.min(ny, map.length * TILE_SIZE - p.height))
-
-      // Wall collision X
-      for (const wall of wallRects.current) {
-        if (aabbOverlap({ x: nx, y: p.y, width: p.width, height: p.height }, wall)) {
-          nx = p.x
-          break
+      // Pipe entry animation
+      if (pipeEnterRef.current) {
+        pipeEnterTimerRef.current++
+        if (pipeEnterTimerRef.current > 40) {
+          pipeEnterRef.current = false
+          pipeEnterTimerRef.current = 0
+          setShowPipe(false)
+          setModal(pendingModalRef.current)
         }
+        rafRef.current = requestAnimationFrame(loop)
+        return
       }
-      // Wall collision Y
-      for (const wall of wallRects.current) {
-        if (aabbOverlap({ x: nx, y: ny, width: p.width, height: p.height }, wall)) {
-          ny = p.y
-          break
+
+      // Death animation
+      if (body.dead) {
+        deadTimerRef.current++
+        stepPhysics(body, [], keys, 1 / 60)
+        if (deadTimerRef.current > 120) {
+          livesRef.current--
+          setHudLives(livesRef.current)
+          if (livesRef.current <= 0) {
+            setGameOverFinal(true)
+          } else {
+            // Respawn
+            const nb = createBody(3 * TILE_SIZE, 22 * TILE_SIZE)
+            bodyRef.current = nb
+            deadTimerRef.current = 0
+            timerRef.current = 400
+          }
         }
+        cam.follow(body.x * U, body.y * U, body.width * U, body.height * U)
+        drawFrame(ctx, f, cam, map, body)
+        rafRef.current = requestAnimationFrame(loop)
+        return
       }
 
-      p.x = nx
-      p.y = ny
-      setPosition(p.x, p.y)
-
-      // Invincibility timer
-      if (p.invincibleTimer > 0) p.invincibleTimer -= dt
-
-      // Orb collection
-      for (const orb of ent.orbs) {
-        if (orb.collected) continue
-        orb.pulseTimer += dt * 3
-        if (aabbOverlap(p, { x: orb.x - 8, y: orb.y - 8, width: 16, height: 16 })) {
-          orb.collected = true
-          collectOrb(orb.id)
-          addScore(10)
-          audio.playCollect()
-          ent.spawnParticles(orb.x, orb.y, '#00cfff', 8)
+      // Timer countdown
+      timerTickRef.current++
+      if (timerTickRef.current >= 60) {
+        timerTickRef.current = 0
+        timerRef.current = Math.max(0, timerRef.current - 1)
+        setHudTimer(timerRef.current)
+        if (timerRef.current === 0) {
+          body.dead = true
+          audioRef.current.playerDead()
         }
       }
 
-      // Enemy patrol + collision
-      const hasCloak = activeBuffs.some((b) => b.type === 'Cloak')
-      for (const enemy of ent.enemies) {
-        enemy.x += enemy.dx * enemy.speed * dt
-        if (enemy.x <= enemy.patrolMin || enemy.x >= enemy.patrolMax) {
-          enemy.dx *= -1
+      // Physics step
+      const tiles = getTiles(body.x)
+      const { hitBlockFromBelow } = stepPhysics(body, tiles, keys, 1 / 60)
+
+      // Block hit from below
+      if (hitBlockFromBelow) {
+        const { col, row } = tileCoord(hitBlockFromBelow)
+        const t = map[row][col]
+        if (t === TILE.QBLOCK) {
+          audioRef.current.blockBump()
+          map[row][col] = TILE.QUSED
+          blockAnimsRef.current.push({ col, row, offsetY: 0, dir: -1 })
+          // Stellar triggers
+          if (col === STELLAR_BLOCKS.MINT_COL) {
+            floatingCoinsRef.current.push({ x: col * TILE_SIZE * U, y: row * TILE_SIZE * U, vy: -3, life: 40 })
+            setModal('mint')
+          } else if (col === STELLAR_BLOCKS.LEADERBOARD_COL) {
+            floatingCoinsRef.current.push({ x: col * TILE_SIZE * U, y: row * TILE_SIZE * U, vy: -3, life: 40 })
+            setModal('leaderboard')
+          } else {
+            // Regular coin
+            coinsRef.current++
+            setHudCoins(coinsRef.current)
+            addScore(200)
+            floatingCoinsRef.current.push({ x: col * TILE_SIZE * U, y: row * TILE_SIZE * U, vy: -3, life: 40 })
+            audioRef.current.coinCollect()
+          }
+        } else if (t === TILE.BRICK) {
+          audioRef.current.blockBump()
+          blockAnimsRef.current.push({ col, row, offsetY: 0, dir: -1 })
         }
-
-        if (!hasCloak && p.invincibleTimer <= 0 &&
-          aabbOverlap(p, { x: enemy.x, y: enemy.y, width: enemy.width, height: enemy.height })) {
-          takeDamage()
-          p.invincibleTimer = 1.5
-          flashRef.current = 0.3
-          audio.playDamage()
-          ent.spawnParticles(p.x + 16, p.y + 16, '#ff3b6f', 12)
-        }
       }
 
-      // Particles
-      ent.updateParticles(dt)
-
-      // Camera follow
-      cameraRef.current!.follow(p.x, p.y, p.width, p.height)
-
-      // Interact prompt
-      let prompt: string | null = null
-      if (vaultPos && withinRange(p, { x: vaultPos.x, y: vaultPos.y, width: TILE_SIZE, height: TILE_SIZE }, INTERACT_RANGE)) {
-        prompt = 'Press E to mint token'
-      } else if (shrinePos && withinRange(p, { x: shrinePos.x, y: shrinePos.y, width: TILE_SIZE, height: TILE_SIZE }, INTERACT_RANGE)) {
-        prompt = 'Press E to view leaderboard'
-      } else if (shopPos && withinRange(p, { x: shopPos.x, y: shopPos.y, width: TILE_SIZE, height: TILE_SIZE }, INTERACT_RANGE)) {
-        prompt = 'Press E to open shop'
-      }
-      interactPromptRef.current = prompt
-      setInteractPrompt(prompt)
-
-      // E key interaction
-      if (inp.wasJustPressed('KeyE') && prompt) {
-        audio.playInteract()
-        if (prompt.includes('mint')) setModal('vault')
-        else if (prompt.includes('leaderboard')) setModal('leaderboard')
-        else if (prompt.includes('shop')) setModal('shop')
-      }
-
-      // Elapsed time
-      elapsedRef.current += dt
-      setElapsedTime(elapsedRef.current)
-
-      // Buff tick
-      tickBuffs()
-
-      // Death check
-      if (hp <= 0) {
-        setPhase('dead')
-        setIsDead(true)
-      }
-
-      // Damage flash decay
-      if (flashRef.current > 0) flashRef.current -= dt * 2
-
-      inp.flush()
-      frameRef.current++
-    }
-
-    const draw = () => {
-      const r = rendererRef.current!
-      const ent = entitiesRef.current!
-      const cam = cameraRef.current!
-
-      r.clear()
-      cam.begin(r.ctx)
-
-      // Draw tiles
-      for (let row = 0; row < map.length; row++) {
-        for (let col = 0; col < map[row].length; col++) {
-          if (cam.isVisible(col * TILE_SIZE, row * TILE_SIZE, TILE_SIZE, TILE_SIZE)) {
-            r.drawTile(col, row, map[row][col], TILE_SIZE)
+      // Collect map coins
+      const pCol = Math.floor(body.x / TILE_SIZE)
+      const pRow = Math.floor(body.y / TILE_SIZE)
+      for (let dr = -1; dr <= 1; dr++) {
+        for (let dc = -1; dc <= 1; dc++) {
+          const r = pRow + dr; const c = pCol + dc
+          if (r >= 0 && r < MAP_ROWS && c >= 0 && c < MAP_COLS && map[r][c] === TILE.COIN) {
+            map[r][c] = TILE.SKY
+            coinsRef.current++
+            setHudCoins(coinsRef.current)
+            addScore(100)
+            audioRef.current.coinCollect()
+            floatingCoinsRef.current.push({ x: c * TILE_SIZE * U, y: r * TILE_SIZE * U, vy: -3, life: 40 })
           }
         }
       }
 
-      // Draw orbs
-      for (const orb of ent.orbs) {
-        if (!orb.collected && cam.isVisible(orb.x - 8, orb.y - 8, 16, 16)) {
-          drawOrb(r.ctx, orb.x - 8, orb.y - 8, orb.pulseTimer)
+      // Pipe interaction (Down key near shop pipe)
+      if (keys.has('ArrowDown')) {
+        const nearPipeCol = Math.abs(pCol - STELLAR_BLOCKS.SHOP_PIPE_COL) <= 1
+        if (nearPipeCol && body.onGround) {
+          keys.delete('ArrowDown')
+          audioRef.current.pipeEnter()
+          pipeEnterRef.current = true
+          pipeEnterTimerRef.current = 0
+          pendingModalRef.current = 'shop'
+          setShowPipe(true)
         }
       }
 
-      // Draw enemies
-      for (const enemy of ent.enemies) {
-        if (cam.isVisible(enemy.x, enemy.y, enemy.width, enemy.height)) {
-          drawEnemy(r.ctx, enemy.x, enemy.y, frameRef.current)
+      // Enemy update
+      for (const enemy of enemiesRef.current) {
+        if (!enemy.alive) continue
+        if (enemy.squished) {
+          enemy.squishTimer++
+          if (enemy.squishTimer > 30) enemy.alive = false
+          continue
+        }
+        enemy.x += enemy.vx
+        enemy.frame = Math.floor(f / 12) % 2
+        // Wall bounce
+        const eCol = Math.floor(enemy.x / TILE_SIZE)
+        const eRow = Math.floor(enemy.y / TILE_SIZE)
+        if (eCol >= 0 && eCol < MAP_COLS && eRow >= 0 && eRow < MAP_ROWS) {
+          const ahead = map[eRow][eCol + (enemy.vx > 0 ? 1 : -1)]
+          if (ahead && ahead !== TILE.SKY && ahead !== TILE.COIN) enemy.vx *= -1
+        }
+        // Gravity
+        enemy.y += 2
+        const groundRow = MAP_ROWS - 2
+        if (enemy.y > groundRow * TILE_SIZE) enemy.y = groundRow * TILE_SIZE
+
+        // Player stomp
+        const px = body.x * U; const py = body.y * U
+        const ex = enemy.x * U; const ey = enemy.y * U
+        const ew = 16 * U; const eh = 16 * U
+        const bw = body.width * U; const bh = body.height * U
+        const overlap = px < ex + ew && px + bw > ex && py < ey + eh && py + bh > ey
+        if (overlap) {
+          const stompedFromAbove = body.vy > 0 && py + bh - 8 < ey + eh / 2
+          if (stompedFromAbove) {
+            enemy.squished = true
+            enemy.squishTimer = 0
+            body.vy = -5
+            addScore(100)
+            audioRef.current.enemySquish()
+            spawnParticles(ex + ew / 2, ey, '#A80000', 6)
+          } else if (body.invincible === 0) {
+            takeDamage()
+            body.invincible = 90
+            audioRef.current.playerDead()
+            if (hp - 1 <= 0) {
+              body.dead = true
+              deadTimerRef.current = 0
+            }
+          }
         }
       }
 
-      // Draw player (flicker when invincible)
-      const p = ent.player
-      const shouldDraw = p.invincibleTimer <= 0 || Math.floor(p.invincibleTimer * 10) % 2 === 0
-      if (shouldDraw) {
-        drawPlayer(r.ctx, p.x, p.y, p.frame, p.direction)
-        // Name tag
-        if (address) {
-          r.drawText(truncate(address), p.x - 8, p.y - 6, '#00cfff', 6)
-        }
+      // Buff tick
+      tickBuffs()
+
+      // Fall off screen → die
+      if (body.y * U > CANVAS_H + 64) {
+        body.dead = true
+        deadTimerRef.current = 0
+        audioRef.current.playerDead()
       }
 
-      // Draw particles
-      for (const particle of ent.particles) {
-        const alpha = particle.life / particle.maxLife
-        drawParticle(r.ctx, particle.x, particle.y, particle.size, particle.color, alpha)
-      }
+      // Camera
+      cam.follow(body.x * U, body.y * U, body.width * U, body.height * U)
 
-      // Interact prompt (world space)
-      if (interactPromptRef.current) {
-        r.drawText(interactPromptRef.current, p.x - 40, p.y - 18, '#ffcc00', 6)
+      // Update block anims
+      for (const ba of blockAnimsRef.current) {
+        ba.offsetY += ba.dir * 2
+        if (ba.offsetY <= -8) ba.dir = 1
+        if (ba.offsetY >= 0) { ba.offsetY = 0; ba.dir = 0 }
       }
+      blockAnimsRef.current = blockAnimsRef.current.filter((ba) => ba.dir !== 0 || ba.offsetY === 0)
 
-      cam.end(r.ctx)
-
-      // Damage flash (screen space)
-      if (flashRef.current > 0) {
-        r.flashScreen('#ff3b6f', flashRef.current * 0.4)
+      // Update floating coins
+      for (const fc of floatingCoinsRef.current) {
+        fc.y += fc.vy
+        fc.vy += 0.3
+        fc.life--
       }
+      floatingCoinsRef.current = floatingCoinsRef.current.filter((fc) => fc.life > 0)
+
+      // Update particles
+      for (const p of particlesRef.current) {
+        p.x += p.vx; p.y += p.vy; p.vy += 0.2; p.life--
+      }
+      particlesRef.current = particlesRef.current.filter((p) => p.life > 0)
+
+      drawFrame(ctx, f, cam, map, body)
+      rafRef.current = requestAnimationFrame(loop)
     }
 
-    const loop = new GameLoop(update, draw)
-    loopRef.current = loop
-    if (phase === 'playing') loop.start()
+    rafRef.current = requestAnimationFrame(loop)
+    return () => cancelAnimationFrame(rafRef.current)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isConnected, phase])
 
-    return () => {
-      loop.stop()
-      input.destroy()
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isConnected])
-
-  // Pause/resume loop when phase changes
-  useEffect(() => {
-    const loop = loopRef.current
-    if (!loop) return
-    if (phase === 'playing') loop.start()
-    else loop.stop()
-  }, [phase])
-
-  const handleResume = () => {
-    setModal('none')
-    setPhase('playing')
+  function tileCoord(rect: TileRect) {
+    return { col: Math.round(rect.x / TILE_SIZE), row: Math.round(rect.y / TILE_SIZE) }
   }
 
-  const handlePause = () => setPhase('paused')
+  function drawFrame(
+    ctx: CanvasRenderingContext2D,
+    f: number,
+    cam: ScrollCamera,
+    map: number[][],
+    body: PhysicsBody,
+  ) {
+    // Sky
+    ctx.fillStyle = '#5C94FC'
+    ctx.fillRect(0, 0, CANVAS_W, CANVAS_H)
 
-  // CSS scale canvas to viewport
+    // Parallax background (clouds, hills) — screen space
+    const bgOff = cam.bgOffset(0.3)
+    for (let i = 0; i < 5; i++) {
+      const cx = ((i * 240 - bgOff % 240 + 240) % (CANVAS_W + 240)) - 48
+      drawCloud(ctx, cx, 20, i % 2 === 0 ? 2 : 1)
+    }
+    const hillOff = cam.bgOffset(0.5)
+    for (let i = 0; i < 4; i++) {
+      const hx = ((i * 300 - hillOff % 300 + 300) % (CANVAS_W + 300)) - 48
+      drawHill(ctx, hx, CANVAS_H - 80)
+    }
+
+    // World tiles
+    cam.begin(ctx)
+    const colMin = Math.floor(cam.x / TILE_SIZE) - 1
+    const colMax = colMin + Math.ceil(CANVAS_W / TILE_SIZE) + 2
+    for (let r = 0; r < MAP_ROWS; r++) {
+      for (let c = Math.max(0, colMin); c <= Math.min(MAP_COLS - 1, colMax); c++) {
+        const t = map[r][c]
+        const tx = c * TS; const ty = r * TS
+        if (t === TILE.GROUND || t === TILE.STAIR) {
+          drawGround(ctx, tx, ty)
+        } else if (t === TILE.BRICK) {
+          // Check block anim
+          const ba = blockAnimsRef.current.find((b) => b.col === c && b.row === r)
+          drawBrick(ctx, tx, ty + (ba ? ba.offsetY : 0))
+        } else if (t === TILE.QBLOCK) {
+          const ba = blockAnimsRef.current.find((b) => b.col === c && b.row === r)
+          drawQuestionBlock(ctx, tx, ty, false, ba ? ba.offsetY : 0)
+        } else if (t === TILE.QUSED) {
+          drawQuestionBlock(ctx, tx, ty, true)
+        } else if (t === TILE.COIN) {
+          drawCoin(ctx, tx + TS / 4, ty + TS / 4, Math.floor(f / 8) % 4)
+        } else if (t === TILE.PIPE_TOP) {
+          // Draw pipe from top tile downward
+          let h = 1
+          let rr = r + 1
+          while (rr < MAP_ROWS && map[rr][c] === TILE.PIPE_BOT) { h++; rr++ }
+          drawPipe(ctx, tx - TS / 4, ty, h)
+        }
+      }
+    }
+
+    // Flag pole at col 193
+    drawFlag(ctx, 193 * TS, (MAP_ROWS - 10) * TS, 8)
+
+    // Enemies
+    for (const enemy of enemiesRef.current) {
+      if (!enemy.alive) continue
+      const ex = enemy.x * U; const ey = enemy.y * U
+      if (!cam.isVisible(ex, ey, 16 * U, 16 * U)) continue
+      if (enemy.type === 'goomba') {
+        drawGoomba(ctx, ex, ey, enemy.frame, enemy.squished)
+      } else {
+        drawKoopa(ctx, ex, ey, enemy.frame, enemy.inShell)
+      }
+    }
+
+    // Floating coins
+    for (const fc of floatingCoinsRef.current) {
+      drawCoin(ctx, fc.x, fc.y, Math.floor(f / 4) % 4)
+    }
+
+    // Particles
+    for (const p of particlesRef.current) {
+      ctx.globalAlpha = p.life / p.maxLife
+      ctx.fillStyle = p.color
+      ctx.fillRect(Math.round(p.x), Math.round(p.y), p.size, p.size)
+    }
+    ctx.globalAlpha = 1
+
+    // Player
+    const px = body.x * U; const py = body.y * U
+    const shouldDraw = body.invincible === 0 || Math.floor(body.invincible / 5) % 2 === 0
+    if (shouldDraw) {
+      drawMario(ctx, px, py, body.state, body.frame, body.dir, body.powerUp)
+    }
+
+    // Pipe entry overlay
+    if (pipeEnterRef.current) {
+      const t = pipeEnterTimerRef.current / 40
+      ctx.globalAlpha = t * 0.8
+      ctx.fillStyle = '#000'
+      ctx.fillRect(0, 0, CANVAS_W, CANVAS_H)
+      ctx.globalAlpha = 1
+    }
+
+    cam.end(ctx)
+
+    // Invincible flash overlay
+    if (body.invincible > 60 && Math.floor(body.invincible / 5) % 2 === 0) {
+      ctx.globalAlpha = 0.15
+      ctx.fillStyle = '#FCFCFC'
+      ctx.fillRect(0, 0, CANVAS_W, CANVAS_H)
+      ctx.globalAlpha = 1
+    }
+  }
+
+  // Touch controls
+  const touchKey = (code: string, down: boolean) => {
+    if (down) keysRef.current.add(code)
+    else keysRef.current.delete(code)
+  }
+
   const scale = Math.min(window.innerWidth / CANVAS_W, window.innerHeight / CANVAS_H)
 
+  if (gameOverFinal) {
+    return (
+      <GameOver
+        score={sessionScore}
+        onRetry={() => {
+          bodyRef.current = createBody(3 * TILE_SIZE, 22 * TILE_SIZE)
+          mapRef.current = LEVEL_MAP.map((r) => [...r])
+          livesRef.current = 3
+          timerRef.current = 400
+          coinsRef.current = 0
+          setHudCoins(0)
+          setHudTimer(400)
+          setHudLives(3)
+          setGameOverFinal(false)
+          setPhase('playing')
+        }}
+        onMenu={() => navigate('/')}
+      />
+    )
+  }
+
   return (
-    <div className="w-full h-screen bg-bg flex items-center justify-center overflow-hidden">
-      {/* Game canvas wrapper */}
+    <div style={{ width: '100vw', height: '100vh', background: '#000', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
       <div
-        ref={wrapperRef}
         id="game-canvas-wrapper"
-        className={`relative ${scanlines ? 'scanlines' : ''}`}
-        style={{ width: CANVAS_W, height: CANVAS_H, transform: `scale(${scale})`, transformOrigin: 'center center' }}
+        style={{ position: 'relative', width: CANVAS_W, height: CANVAS_H, transform: `scale(${scale})`, transformOrigin: 'center center' }}
       >
         <canvas
           ref={canvasRef}
-          id="game-canvas"
           width={CANVAS_W}
           height={CANVAS_H}
-          className="pixel-render"
+          style={{ display: 'block', imageRendering: 'pixelated' }}
         />
 
-        {/* HUD overlay (React DOM, not canvas) */}
-        <HUD onPause={handlePause} />
+        <HUD
+          coins={hudCoins}
+          timer={hudTimer}
+          lives={hudLives}
+          onPause={() => setPhase('paused')}
+        />
 
-        {/* Interact prompt (React DOM fallback) */}
-        {interactPrompt && phase === 'playing' && (
-          <div className="absolute bottom-16 left-1/2 -translate-x-1/2 pointer-events-none">
-            <p className="font-pixel text-xs text-yellow-400 bg-surface/80 px-3 py-1 border border-yellow-400/50">
-              {interactPrompt}
-            </p>
-          </div>
-        )}
+        {showPipe && <PipeTransition />}
 
-        {/* Pause menu */}
         {phase === 'paused' && modal === 'none' && (
           <PauseMenu
-            onResume={handleResume}
+            onResume={() => setPhase('playing')}
             onShop={() => setModal('shop')}
             onLeaderboard={() => setModal('leaderboard')}
+            onMenu={() => navigate('/')}
           />
         )}
 
-        {/* Modals */}
-        {modal === 'vault' && <TokenMintModal onClose={() => { setModal('none'); setPhase('playing') }} />}
+        {modal === 'mint' && <TokenMintModal onClose={() => { setModal('none'); setPhase('playing') }} />}
         {modal === 'shop' && <ItemShopModal onClose={() => { setModal('none'); setPhase('playing') }} />}
         {modal === 'leaderboard' && <LeaderboardPanel onClose={() => { setModal('none'); setPhase('playing') }} />}
 
-        {/* Death screen */}
-        {isDead && (
-          <div className="absolute inset-0 flex items-center justify-center z-50 bg-black/70">
-            <div className="glass rounded-xl p-8 flex flex-col items-center gap-4 border border-danger modal-enter">
-              <h2 className="font-pixel text-danger text-lg">GAME OVER</h2>
-              <p className="font-pixel text-xs text-gray-400">Final Score: <span className="text-success">{sessionScore}</span></p>
-              <button
-                onClick={() => {
-                  setIsDead(false)
-                  useGameStore.getState().resetGame()
-                  usePlayerStore.getState().resetSession()
-                  setPhase('playing')
-                  loopRef.current?.start()
-                }}
-                className="font-pixel text-xs bg-primary text-white px-6 py-3 hover:bg-purple-700 transition-colors"
-              >
-                PLAY AGAIN
-              </button>
-              <button
-                onClick={() => navigate('/')}
-                className="font-pixel text-xs border border-border text-gray-400 px-6 py-3 hover:border-white hover:text-white transition-colors"
-              >
-                MAIN MENU
-              </button>
-            </div>
+        {/* Touch D-pad */}
+        <div style={{ position: 'absolute', bottom: 8, left: 8, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2, zIndex: 20 }}>
+          <button className="dpad-btn" onPointerDown={() => touchKey('ArrowUp', true)} onPointerUp={() => touchKey('ArrowUp', false)}>▲</button>
+          <div style={{ display: 'flex', gap: 2 }}>
+            <button className="dpad-btn" onPointerDown={() => touchKey('ArrowLeft', true)} onPointerUp={() => touchKey('ArrowLeft', false)}>◄</button>
+            <button className="dpad-btn" onPointerDown={() => touchKey('ArrowDown', true)} onPointerUp={() => touchKey('ArrowDown', false)}>▼</button>
+            <button className="dpad-btn" onPointerDown={() => touchKey('ArrowRight', true)} onPointerUp={() => touchKey('ArrowRight', false)}>►</button>
           </div>
-        )}
+        </div>
+        {/* Touch A/B */}
+        <div style={{ position: 'absolute', bottom: 8, right: 8, display: 'flex', gap: 8, zIndex: 20 }}>
+          <button className="dpad-btn" style={{ borderRadius: '50%', background: 'rgba(228,0,88,0.7)' }} onPointerDown={() => touchKey('ShiftLeft', true)} onPointerUp={() => touchKey('ShiftLeft', false)}>B</button>
+          <button className="dpad-btn" style={{ borderRadius: '50%', background: 'rgba(0,88,248,0.7)' }} onPointerDown={() => touchKey('Space', true)} onPointerUp={() => touchKey('Space', false)}>A</button>
+        </div>
       </div>
     </div>
   )

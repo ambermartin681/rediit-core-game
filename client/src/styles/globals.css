@@ -2,245 +2,288 @@
 
 @layer base {
   :root {
-    --color-bg: #0a0a0f;
-    --color-primary: #7000ff;
-    --color-accent: #00cfff;
-    --color-success: #00ff94;
-    --color-danger: #ff3b6f;
-    --color-surface: #13131f;
-    --color-border: #2a2a3f;
+    /* NES Mario palette */
+    --nes-sky:      #5C94FC;
+    --nes-ground:   #C84C0C;
+    --nes-brick:    #E45C10;
+    --nes-qyellow:  #FAB005;
+    --nes-qdark:    #C88000;
+    --nes-pipe:     #00A800;
+    --nes-pipedark: #006400;
+    --nes-red:      #E40058;
+    --nes-skin:     #FCBCB0;
+    --nes-blue:     #0058F8;
+    --nes-white:    #FCFCFC;
+    --nes-black:    #000000;
+    --nes-coin:     #FAB005;
+    --nes-hud:      #000000;
+    --nes-hill:     #00A800;
+    --nes-goomba:   #A80000;
+    --nes-brown:    #7C5800;
+
+    /* Tailwind compat aliases */
+    --color-bg:      #000000;
+    --color-primary: #E40058;
+    --color-accent:  #FAB005;
+    --color-success: #00A800;
+    --color-danger:  #E40058;
+    --color-surface: #000040;
+    --color-border:  #FAB005;
   }
 
   * {
     box-sizing: border-box;
+    image-rendering: pixelated;
+    image-rendering: crisp-edges;
   }
 
-  html,
-  body,
-  #root {
+  html, body, #root {
     margin: 0;
     padding: 0;
     width: 100%;
     height: 100%;
-    background: var(--color-bg);
-    color: #fff;
-    font-family: 'Inter', sans-serif;
+    background: var(--nes-sky);
+    color: var(--nes-white);
+    font-family: 'Press Start 2P', monospace;
+    -webkit-font-smoothing: none;
+    -moz-osx-font-smoothing: grayscale;
+    font-smooth: never;
+  }
+
+  /* No anti-aliasing on text */
+  * {
+    -webkit-font-smoothing: none;
+    text-rendering: optimizeSpeed;
   }
 }
 
-/* ── Pixel rendering ─────────────────────────────────────── */
-.pixel-render {
+/* ── Pixel font classes ──────────────────────────────────── */
+.font-pixel {
+  font-family: 'Press Start 2P', monospace;
+  letter-spacing: 0.05em;
+  -webkit-font-smoothing: none;
+}
+
+.font-mono {
+  font-family: 'JetBrains Mono', monospace;
+  -webkit-font-smoothing: none;
+}
+
+/* ── Canvas pixel rendering ──────────────────────────────── */
+canvas {
   image-rendering: pixelated;
   image-rendering: crisp-edges;
+  display: block;
 }
 
-/* ── CRT glow ────────────────────────────────────────────── */
-.crt-glow {
-  box-shadow:
-    0 0 8px var(--color-primary),
-    0 0 20px rgba(112, 0, 255, 0.4),
-    inset 0 0 8px rgba(112, 0, 255, 0.1);
+/* ── NES HUD bar ─────────────────────────────────────────── */
+.nes-hud {
+  background: var(--nes-hud);
+  font-family: 'Press Start 2P', monospace;
+  color: var(--nes-white);
+  letter-spacing: 0.05em;
+  -webkit-font-smoothing: none;
 }
 
-.crt-glow-cyan {
-  box-shadow:
-    0 0 8px var(--color-accent),
-    0 0 20px rgba(0, 207, 255, 0.4);
+/* ── NES button ──────────────────────────────────────────── */
+.nes-btn {
+  font-family: 'Press Start 2P', monospace;
+  font-size: 8px;
+  letter-spacing: 0.05em;
+  border: 2px solid var(--nes-white);
+  background: var(--nes-black);
+  color: var(--nes-white);
+  padding: 8px 16px;
+  cursor: pointer;
+  image-rendering: pixelated;
+  -webkit-font-smoothing: none;
+  outline: none;
 }
 
-/* ── Pixel border (sharp, no radius) ─────────────────────── */
-.pixel-border {
-  border: 2px solid var(--color-border);
-  border-radius: 0;
+.nes-btn:hover {
+  background: var(--nes-white);
+  color: var(--nes-black);
 }
 
-.pixel-border-primary {
-  border: 2px solid var(--color-primary);
-  border-radius: 0;
+.nes-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
 }
 
-.pixel-border-accent {
-  border: 2px solid var(--color-accent);
-  border-radius: 0;
+.nes-btn-red {
+  border-color: var(--nes-red);
+  color: var(--nes-red);
 }
 
-/* ── Scanline overlay ────────────────────────────────────── */
-.scanlines {
-  position: relative;
-  overflow: hidden;
+.nes-btn-red:hover {
+  background: var(--nes-red);
+  color: var(--nes-white);
 }
 
-.scanlines::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  background: repeating-linear-gradient(
-    to bottom,
-    transparent 0px,
-    transparent 2px,
-    rgba(0, 0, 0, 0.18) 2px,
-    rgba(0, 0, 0, 0.18) 4px
-  );
-  pointer-events: none;
-  z-index: 10;
+.nes-btn-gold {
+  border-color: var(--nes-coin);
+  color: var(--nes-coin);
 }
 
-/* ── Glass morphism modal ────────────────────────────────── */
-.glass {
-  background: rgba(19, 19, 31, 0.75);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  border: 1px solid var(--color-border);
+.nes-btn-gold:hover {
+  background: var(--nes-coin);
+  color: var(--nes-black);
 }
 
-/* ── Glitch animation ────────────────────────────────────── */
-@keyframes glitch {
-  0%,
-  100% {
-    text-shadow:
-      2px 0 var(--color-accent),
-      -2px 0 var(--color-danger);
-    transform: translate(0);
-  }
-  20% {
-    text-shadow:
-      -2px 0 var(--color-accent),
-      2px 0 var(--color-danger);
-    transform: translate(-2px, 1px);
-  }
-  40% {
-    text-shadow:
-      2px 0 var(--color-danger),
-      -2px 0 var(--color-accent);
-    transform: translate(2px, -1px);
-  }
-  60% {
-    text-shadow:
-      0 0 var(--color-primary);
-    transform: translate(0);
-  }
+.nes-btn-green {
+  border-color: var(--nes-pipe);
+  color: var(--nes-pipe);
 }
 
-.glitch {
-  animation: glitch 3s infinite;
+.nes-btn-green:hover {
+  background: var(--nes-pipe);
+  color: var(--nes-white);
 }
 
-/* ── Pulse glow button ───────────────────────────────────── */
-@keyframes pulse-glow {
-  0%,
-  100% {
-    box-shadow:
-      0 0 10px var(--color-primary),
-      0 0 30px rgba(112, 0, 255, 0.5);
-  }
-  50% {
-    box-shadow:
-      0 0 20px var(--color-primary),
-      0 0 60px rgba(112, 0, 255, 0.8),
-      0 0 80px rgba(0, 207, 255, 0.3);
-  }
+/* ── NES panel / modal ───────────────────────────────────── */
+.nes-panel {
+  background: var(--nes-black);
+  border: 4px solid var(--nes-white);
+  font-family: 'Press Start 2P', monospace;
+  color: var(--nes-white);
+  -webkit-font-smoothing: none;
 }
 
-.pulse-glow {
-  animation: pulse-glow 2s ease-in-out infinite;
+.nes-panel-dark {
+  background: #000040;
+  border: 4px solid var(--nes-coin);
 }
 
-/* ── Orb pulse ───────────────────────────────────────────── */
-@keyframes orb-pulse {
-  0%,
-  100% {
-    opacity: 1;
-    transform: scale(1);
-  }
-  50% {
-    opacity: 0.6;
-    transform: scale(1.15);
-  }
+/* ── NES input ───────────────────────────────────────────── */
+.nes-input {
+  background: #000020;
+  border: 2px solid var(--nes-white);
+  color: var(--nes-white);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  padding: 6px 8px;
+  outline: none;
+  width: 100%;
+  -webkit-font-smoothing: none;
 }
 
-/* ── Modal open/close transitions ───────────────────────── */
-.modal-enter {
-  animation: modal-in 0.2s ease-out forwards;
+.nes-input:focus {
+  border-color: var(--nes-coin);
 }
 
-.modal-exit {
-  animation: modal-out 0.15s ease-in forwards;
+/* ── Question block card ─────────────────────────────────── */
+.qblock-card {
+  background: var(--nes-qyellow);
+  border: 3px solid var(--nes-qdark);
+  color: var(--nes-black);
+  font-family: 'Press Start 2P', monospace;
+  cursor: pointer;
+  transition: transform 0.1s;
+  -webkit-font-smoothing: none;
 }
 
-@keyframes modal-in {
-  from {
-    opacity: 0;
-    transform: scale(0.92) translateY(8px);
-  }
-  to {
-    opacity: 1;
-    transform: scale(1) translateY(0);
-  }
+.qblock-card:hover {
+  transform: translateY(-4px);
 }
 
-@keyframes modal-out {
-  from {
-    opacity: 1;
-    transform: scale(1);
-  }
-  to {
-    opacity: 0;
-    transform: scale(0.92);
-  }
+.qblock-card.used {
+  background: #7C7C7C;
+  border-color: #5C5C5C;
+  color: var(--nes-white);
 }
 
-/* ── Score counter animation ─────────────────────────────── */
+/* ── Blink animation ─────────────────────────────────────── */
+@keyframes nes-blink {
+  0%, 49% { opacity: 1; }
+  50%, 100% { opacity: 0; }
+}
+
+.nes-blink {
+  animation: nes-blink 1s step-end infinite;
+}
+
+/* ── Score pop ───────────────────────────────────────────── */
 @keyframes score-pop {
-  0% {
-    transform: scale(1);
-  }
-  50% {
-    transform: scale(1.3);
-    color: var(--color-success);
-  }
-  100% {
-    transform: scale(1);
-  }
+  0% { transform: scale(1); }
+  50% { transform: scale(1.4); color: var(--nes-coin); }
+  100% { transform: scale(1); }
 }
 
 .score-pop {
   animation: score-pop 0.3s ease-out;
 }
 
-/* ── HP bar segments ─────────────────────────────────────── */
-.hp-segment {
-  width: 18px;
-  height: 14px;
-  border: 1px solid rgba(255, 59, 111, 0.5);
-  background: var(--color-danger);
-  display: inline-block;
-  margin-right: 2px;
+/* ── Coin fly animation ──────────────────────────────────── */
+@keyframes coin-fly {
+  0% { transform: translateY(0) scale(1); opacity: 1; }
+  100% { transform: translateY(-48px) scale(0); opacity: 0; }
 }
 
-.hp-segment.empty {
-  background: rgba(255, 59, 111, 0.15);
+.coin-fly {
+  animation: coin-fly 0.6s ease-out forwards;
 }
 
-/* ── Canvas wrapper ──────────────────────────────────────── */
+/* ── Modal slide up ──────────────────────────────────────── */
+@keyframes slide-up {
+  from { transform: translateY(100%); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+
+.modal-enter {
+  animation: slide-up 0.2s ease-out forwards;
+}
+
+/* ── Pipe entry ──────────────────────────────────────────── */
+@keyframes pipe-enter {
+  0% { transform: scaleY(1) translateY(0); }
+  50% { transform: scaleY(0.5) translateY(0); }
+  100% { transform: scaleY(0.5) translateY(32px); opacity: 0; }
+}
+
+.pipe-entering {
+  animation: pipe-enter 0.5s ease-in forwards;
+}
+
+/* ── Screen flash ────────────────────────────────────────── */
+@keyframes screen-flash {
+  0%, 100% { opacity: 0; }
+  50% { opacity: 0.5; }
+}
+
+/* ── Scrollbar ───────────────────────────────────────────── */
+::-webkit-scrollbar { width: 4px; }
+::-webkit-scrollbar-track { background: var(--nes-black); }
+::-webkit-scrollbar-thumb { background: var(--nes-coin); }
+
+/* ── Game canvas wrapper ─────────────────────────────────── */
 #game-canvas-wrapper {
   position: relative;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  overflow: hidden;
 }
 
 #game-canvas {
   display: block;
   image-rendering: pixelated;
+  image-rendering: crisp-edges;
 }
 
-/* ── Scrollbar ───────────────────────────────────────────── */
-::-webkit-scrollbar {
-  width: 6px;
+/* ── Touch D-pad ─────────────────────────────────────────── */
+.dpad-btn {
+  background: rgba(0,0,0,0.6);
+  border: 2px solid rgba(255,255,255,0.4);
+  color: white;
+  font-size: 16px;
+  width: 48px;
+  height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  user-select: none;
+  -webkit-user-select: none;
+  touch-action: none;
+  cursor: pointer;
 }
-::-webkit-scrollbar-track {
-  background: var(--color-surface);
-}
-::-webkit-scrollbar-thumb {
-  background: var(--color-primary);
+
+.dpad-btn:active {
+  background: rgba(255,255,255,0.2);
 }

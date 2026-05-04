@@ -9,16 +9,22 @@ interface TxToastProps {
   onClose: () => void
 }
 
-const STATE_CONFIG: Record<TxState, { label: string; color: string; icon: string }> = {
-  signing:    { label: 'Signing transaction...', color: 'text-accent',   icon: '✍' },
-  submitting: { label: 'Submitting to Stellar...', color: 'text-yellow-400', icon: '⟳' },
-  confirmed:  { label: 'Transaction confirmed!', color: 'text-success',  icon: '✓' },
-  failed:     { label: 'Transaction failed',     color: 'text-danger',   icon: '✗' },
+const S: React.CSSProperties = {
+  fontFamily: "'Press Start 2P', monospace",
+  WebkitFontSmoothing: 'none' as const,
+  letterSpacing: '0.05em',
+}
+
+const CONFIG: Record<TxState, { label: string; color: string; icon: string; bg: string }> = {
+  signing:    { label: 'SIGNING...',       color: '#FAB005', icon: '▣', bg: '#000040' },
+  submitting: { label: 'SUBMITTING...',    color: '#FCFCFC', icon: '►', bg: '#000040' },
+  confirmed:  { label: 'CONFIRMED! 1 UP!', color: '#00A800', icon: '★', bg: '#003000' },
+  failed:     { label: 'TX FAILED',        color: '#E40058', icon: '✗', bg: '#300000' },
 }
 
 export function TxToast({ state, txHash, error, onClose }: TxToastProps) {
   const [visible, setVisible] = useState(true)
-  const cfg = STATE_CONFIG[state]
+  const cfg = CONFIG[state]
 
   useEffect(() => {
     if (state === 'confirmed' || state === 'failed') {
@@ -30,30 +36,63 @@ export function TxToast({ state, txHash, error, onClose }: TxToastProps) {
   if (!visible) return null
 
   return (
-    <div className="fixed bottom-6 right-6 z-50 glass rounded-xl p-4 min-w-72 modal-enter border border-border">
-      <div className="flex items-start gap-3">
-        <span className={`text-xl ${cfg.color} font-pixel`}>{cfg.icon}</span>
-        <div className="flex-1">
-          <p className={`font-pixel text-xs ${cfg.color}`}>{cfg.label}</p>
-          {error && <p className="text-danger text-xs font-mono mt-1">{error}</p>}
+    <div
+      style={{
+        position: 'fixed', bottom: 24, right: 24, zIndex: 100,
+        background: cfg.bg,
+        border: `3px solid ${cfg.color}`,
+        padding: '12px 16px',
+        minWidth: 260,
+        display: 'flex', flexDirection: 'column', gap: 8,
+      }}
+    >
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+        {/* Coin/icon animation */}
+        <span
+          style={{
+            ...S, fontSize: 14, color: cfg.color,
+            display: 'inline-block',
+            animation: state === 'confirmed' ? 'coin-fly 0.6s ease-out' : 'none',
+          }}
+        >
+          {cfg.icon}
+        </span>
+        <div style={{ flex: 1 }}>
+          <div style={{ ...S, fontSize: 7, color: cfg.color }}>{cfg.label}</div>
+          {error && (
+            <div style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 9, color: '#E40058', marginTop: 4 }}>
+              {error}
+            </div>
+          )}
           {txHash && state === 'confirmed' && (
             <a
               href={`https://testnet.stellarchain.io/transactions/${txHash}`}
               target="_blank"
               rel="noopener noreferrer"
-              className="text-accent text-xs font-mono underline mt-1 block"
+              style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 9, color: '#FAB005', display: 'block', marginTop: 4 }}
             >
-              View on Explorer →
+              VIEW ON EXPLORER →
             </a>
           )}
         </div>
-        <button onClick={() => { setVisible(false); onClose() }} className="text-gray-500 hover:text-white text-xs">✕</button>
+        <button
+          onClick={() => { setVisible(false); onClose() }}
+          style={{ ...S, fontSize: 8, color: '#7C7C7C', background: 'none', border: 'none', cursor: 'pointer' }}
+        >
+          ✕
+        </button>
       </div>
+
+      {/* Progress bar */}
       {(state === 'signing' || state === 'submitting') && (
-        <div className="mt-2 h-1 bg-border rounded overflow-hidden">
+        <div style={{ height: 4, background: '#1C1C1C' }}>
           <div
-            className="h-full bg-primary transition-all duration-500"
-            style={{ width: state === 'signing' ? '40%' : '80%' }}
+            style={{
+              height: '100%',
+              background: cfg.color,
+              width: state === 'signing' ? '40%' : '80%',
+              transition: 'width 0.5s',
+            }}
           />
         </div>
       )}

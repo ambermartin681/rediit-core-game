@@ -1,17 +1,13 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useWalletStore } from '@/stores/walletStore'
-import { usePlayerStore } from '@/stores/playerStore'
 import { useGameStore } from '@/stores/gameStore'
 import { WalletButton } from '@/components/WalletButton'
+import { drawMario, drawCloud, drawHill, drawGoomba, drawCoin } from '@/engine/MarioSprites'
 
-interface Star {
-  x: number
-  y: number
-  z: number
-  px: number
-  py: number
-}
+const W = 800
+const H = 400
+const U = 4 // 1 game unit = 4px
 
 function truncate(addr: string) {
   return `${addr.slice(0, 4)}...${addr.slice(-4)}`
@@ -19,91 +15,123 @@ function truncate(addr: string) {
 
 export function Landing() {
   const canvasRef = useRef<HTMLCanvasElement>(null)
-  const starsRef = useRef<Star[]>([])
-  const mouseRef = useRef({ x: 0, y: 0 })
   const rafRef = useRef(0)
+  const frameRef = useRef(0)
   const navigate = useNavigate()
   const { isConnected, address, xlmBalance } = useWalletStore()
-  const { onChainScore } = usePlayerStore()
   const { setPhase, resetGame } = useGameStore()
+  const [menuIdx, setMenuIdx] = useState(0)
+  const [blinkOn, setBlinkOn] = useState(true)
 
-  // Init stars
+  // Blink cursor
   useEffect(() => {
-    const W = window.innerWidth
-    const H = window.innerHeight
-    starsRef.current = Array.from({ length: 200 }, () => ({
-      x: Math.random() * W - W / 2,
-      y: Math.random() * H - H / 2,
-      z: Math.random() * W,
-      px: 0,
-      py: 0,
-    }))
+    const t = setInterval(() => setBlinkOn((b) => !b), 500)
+    return () => clearInterval(t)
   }, [])
 
-  // Starfield animation
+  // Keyboard navigation
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'ArrowUp') setMenuIdx((i) => Math.max(0, i - 1))
+      if (e.key === 'ArrowDown') setMenuIdx((i) => Math.min(1, i + 1))
+      if (e.key === 'Enter' && menuIdx === 0 && isConnected) handleEnterGame()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [menuIdx, isConnected])
+
+  // Canvas animation
   useEffect(() => {
     const canvas = canvasRef.current
     if (!canvas) return
     const ctx = canvas.getContext('2d')
     if (!ctx) return
 
-    const resize = () => {
-      canvas.width = window.innerWidth
-      canvas.height = window.innerHeight
-    }
-    resize()
-    window.addEventListener('resize', resize)
+    // Mario runner positions
+    const runners = [
+      { x: -64, y: H - 80, speed: 1.5 },
+      { x: W + 64, y: H - 80, speed: -1.2 },
+    ]
 
     const animate = () => {
-      const W = canvas.width
-      const H = canvas.height
-      const mx = mouseRef.current.x - W / 2
-      const my = mouseRef.current.y - H / 2
+      frameRef.current++
+      const f = frameRef.current
 
-      ctx.fillStyle = '#0a0a0f'
+      // Sky background
+      ctx.fillStyle = '#5C94FC'
       ctx.fillRect(0, 0, W, H)
 
-      for (const star of starsRef.current) {
-        star.z -= 2 + Math.abs(mx) * 0.002 + Math.abs(my) * 0.002
-
-        if (star.z <= 0) {
-          star.x = Math.random() * W - W / 2
-          star.y = Math.random() * H - H / 2
-          star.z = W
-          star.px = star.x
-          star.py = star.y
-        }
-
-        const sx = (star.x / star.z) * W + W / 2
-        const sy = (star.y / star.z) * H + H / 2
-        const size = Math.max(0.5, (1 - star.z / W) * 3)
-        const brightness = Math.floor((1 - star.z / W) * 255)
-
-        ctx.beginPath()
-        ctx.moveTo(star.px, star.py)
-        ctx.lineTo(sx, sy)
-        ctx.strokeStyle = `rgba(${brightness},${brightness},${Math.min(255, brightness + 80)},${(1 - star.z / W) * 0.8})`
-        ctx.lineWidth = size
-        ctx.stroke()
-
-        star.px = sx
-        star.py = sy
+      // Clouds (parallax)
+      ctx.save()
+      const cloudOff = (f * 0.3) % W
+      for (let i = 0; i < 4; i++) {
+        const cx = ((i * 220 - cloudOff + W) % W)
+        drawCloud(ctx, cx, 40, i % 2 === 0 ? 2 : 1)
       }
+      ctx.restore()
+
+      // Hills
+      drawHill(ctx, 50, H - 120)
+      drawHill(ctx, 300, H - 100)
+      drawHill(ctx, 580, H - 120)
+
+      // Ground strip
+      ctx.fillStyle = '#C84C0C'
+      ctx.fillRect(0, H - 64, W, 64)
+      ctx.fillStyle = '#E45C10'
+      ctx.fillRect(0, H - 64, W, 4)
+      // Ground tiles
+      for (let x = 0; x < W; x += 16 * U) {
+        ctx.fillStyle = '#C84C0C'
+        ctx.fillRect(x, H - 64, 16 * U, 64)
+        ctx.fillStyle = '#A83C08'
+        ctx.fillRect(x, H - 64, 1, 64)
+        ctx.fillRect(x, H - 64, 16 * U, 1)
+      }
+
+      // Floating coin blocks
+      const blockY = H - 160
+      for (let i = 0; i < 5; i++) {
+        const bx = 200 + i * 80
+        ctx.fillStyle = '#FAB005'
+        ctx.fillRect(bx, blockY, 16 * U, 16 * U)
+        ctx.fillStyle = '#FCFCFC'
+        ctx.fillRect(bx, blockY, 16 * U, 2)
+        ctx.fillRect(bx, blockY, 2, 16 * U)
+        ctx.fillStyle = '#C88000'
+        ctx.fillRect(bx, blockY + 16 * U - 2, 16 * U, 2)
+        ctx.fillRect(bx + 16 * U - 2, blockY, 2, 16 * U)
+        // ? mark
+        ctx.fillStyle = '#FCFCFC'
+        ctx.fillRect(bx + 6, blockY + 6, 4, 2)
+        ctx.fillRect(bx + 8, blockY + 8, 2, 2)
+        ctx.fillRect(bx + 8, blockY + 12, 2, 2)
+      }
+
+      // Spinning coins above blocks
+      for (let i = 0; i < 5; i++) {
+        const bx = 200 + i * 80
+        drawCoin(ctx, bx + 4, blockY - 24, (f + i * 3) % 4)
+      }
+
+      // Goomba patrol
+      const gx = ((f * 0.8) % (W + 64)) - 32
+      drawGoomba(ctx, gx, H - 80, f, false)
+
+      // Mario runners
+      runners[0].x += runners[0].speed
+      if (runners[0].x > W + 64) runners[0].x = -64
+      runners[1].x += runners[1].speed
+      if (runners[1].x < -64) runners[1].x = W + 64
+
+      drawMario(ctx, runners[0].x, runners[0].y, 'walking', Math.floor(f / 8) % 3, 'right', 'none')
+      drawMario(ctx, runners[1].x, runners[1].y, 'walking', Math.floor(f / 8) % 3, 'left', 'none')
 
       rafRef.current = requestAnimationFrame(animate)
     }
     animate()
-
-    const onMouseMove = (e: MouseEvent) => {
-      mouseRef.current = { x: e.clientX, y: e.clientY }
-    }
-    window.addEventListener('mousemove', onMouseMove)
-
-    return () => {
-      cancelAnimationFrame(rafRef.current)
-      window.removeEventListener('resize', resize)
-      window.removeEventListener('mousemove', onMouseMove)
-    }
+    return () => cancelAnimationFrame(rafRef.current)
   }, [])
 
   const handleEnterGame = () => {
@@ -113,77 +141,167 @@ export function Landing() {
   }
 
   return (
-    <div className="relative w-full h-screen overflow-hidden bg-bg flex items-center justify-center">
-      {/* Starfield canvas */}
-      <canvas ref={canvasRef} className="absolute inset-0 w-full h-full" />
+    <div
+      style={{
+        width: '100vw',
+        height: '100vh',
+        background: '#000',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        overflow: 'hidden',
+      }}
+    >
+      <div style={{ position: 'relative', width: W, height: H }}>
+        {/* Background canvas */}
+        <canvas
+          ref={canvasRef}
+          width={W}
+          height={H}
+          style={{ display: 'block', imageRendering: 'pixelated' }}
+        />
 
-      {/* Scanline overlay */}
-      <div className="absolute inset-0 scanlines pointer-events-none" />
-
-      {/* Stellar Wave badge */}
-      <div className="absolute top-4 left-4 glass rounded-xl px-3 py-2 border border-border">
-        <p className="font-pixel text-xs text-primary">⭐ STELLAR WAVE</p>
-        <p className="font-pixel text-xs text-gray-500">ECOSYSTEM</p>
-      </div>
-
-      {/* Version tag */}
-      <div className="absolute bottom-4 right-4">
-        <p className="font-mono text-xs text-gray-600">v0.1.0 — Testnet</p>
-      </div>
-
-      {/* Main content */}
-      <div className="relative z-10 flex flex-col items-center gap-8 px-4">
-        {/* Logo */}
-        <div className="text-center">
-          <h1 className="font-pixel text-4xl md:text-5xl text-primary glitch crt-glow leading-tight">
-            REDIIT
-          </h1>
-          <h1 className="font-pixel text-4xl md:text-5xl text-accent leading-tight">
-            CORE
-          </h1>
-          <div className="mt-2 h-1 bg-gradient-to-r from-primary via-accent to-success" />
-        </div>
-
-        {/* Tagline */}
-        <p className="font-pixel text-xs text-gray-400 text-center">
-          Play. Own. Earn on Stellar.
-        </p>
-
-        {/* Wallet section */}
-        <div className="flex flex-col items-center gap-4">
-          <WalletButton />
-
-          {isConnected && address && (
-            <div className="glass rounded-xl px-6 py-3 border border-border text-center">
-              {onChainScore > 0 ? (
-                <p className="font-pixel text-xs text-success">
-                  Welcome back, {truncate(address)} | Score: {onChainScore.toLocaleString()}
-                </p>
-              ) : (
-                <p className="font-pixel text-xs text-accent">
-                  New player detected. Enter to begin.
-                </p>
-              )}
-              <p className="font-mono text-xs text-gray-400 mt-1">{xlmBalance.toFixed(4)} XLM</p>
-            </div>
-          )}
-
-          <button
-            onClick={handleEnterGame}
-            disabled={!isConnected}
-            className="font-pixel text-sm bg-success text-black px-8 py-4 pulse-glow hover:opacity-90 transition-opacity disabled:opacity-30 disabled:cursor-not-allowed disabled:shadow-none"
+        {/* Overlay UI */}
+        <div
+          style={{
+            position: 'absolute',
+            inset: 0,
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: 0,
+          }}
+        >
+          {/* Title box */}
+          <div
+            style={{
+              background: '#000',
+              border: '4px solid #FCFCFC',
+              padding: '16px 32px',
+              textAlign: 'center',
+              marginBottom: 16,
+            }}
           >
-            ENTER GAME →
-          </button>
-        </div>
+            <div
+              style={{
+                fontFamily: "'Press Start 2P', monospace",
+                fontSize: 20,
+                color: '#E40058',
+                textShadow: '2px 2px #000',
+                letterSpacing: '0.05em',
+                WebkitFontSmoothing: 'none',
+              }}
+            >
+              REDIIT CORE
+            </div>
+            <div
+              style={{
+                fontFamily: "'Press Start 2P', monospace",
+                fontSize: 10,
+                color: '#FAB005',
+                marginTop: 8,
+                letterSpacing: '0.05em',
+                WebkitFontSmoothing: 'none',
+              }}
+            >
+              ★ STELLAR TESTNET ★
+            </div>
+          </div>
 
-        {/* Feature pills */}
-        <div className="flex flex-wrap gap-2 justify-center max-w-md">
-          {['60 FPS Canvas', 'Freighter Wallet', 'Soroban Contracts', 'On-Chain Scores'].map((f) => (
-            <span key={f} className="font-pixel text-xs border border-border text-gray-500 px-2 py-1">
-              {f}
-            </span>
-          ))}
+          {/* Menu options */}
+          <div
+            style={{
+              background: '#000',
+              border: '4px solid #FCFCFC',
+              padding: '16px 32px',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 12,
+              minWidth: 280,
+            }}
+          >
+            {/* 1 Player */}
+            <div
+              style={{
+                fontFamily: "'Press Start 2P', monospace",
+                fontSize: 8,
+                color: menuIdx === 0 ? '#FCFCFC' : '#7C7C7C',
+                cursor: isConnected ? 'pointer' : 'not-allowed',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+                WebkitFontSmoothing: 'none',
+              }}
+              onClick={() => isConnected && handleEnterGame()}
+            >
+              <span style={{ opacity: menuIdx === 0 && blinkOn ? 1 : 0 }}>►</span>
+              1 PLAYER GAME
+            </div>
+
+            {/* 2 Player (disabled) */}
+            <div
+              style={{
+                fontFamily: "'Press Start 2P', monospace",
+                fontSize: 8,
+                color: '#3C3C3C',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+                WebkitFontSmoothing: 'none',
+              }}
+            >
+              <span style={{ opacity: 0 }}>►</span>
+              2 PLAYER GAME
+              <span style={{ fontSize: 6, color: '#5C5C5C' }}>(SOON)</span>
+            </div>
+
+            {/* Wallet connect */}
+            <div style={{ borderTop: '2px solid #3C3C3C', paddingTop: 12 }}>
+              {!isConnected ? (
+                <div
+                  style={{
+                    fontFamily: "'Press Start 2P', monospace",
+                    fontSize: 8,
+                    color: blinkOn ? '#FAB005' : 'transparent',
+                    textAlign: 'center',
+                    marginBottom: 8,
+                    WebkitFontSmoothing: 'none',
+                  }}
+                >
+                  INSERT COIN / CONNECT WALLET
+                </div>
+              ) : (
+                <div
+                  style={{
+                    fontFamily: "'JetBrains Mono', monospace",
+                    fontSize: 10,
+                    color: '#00A800',
+                    textAlign: 'center',
+                    marginBottom: 8,
+                  }}
+                >
+                  {truncate(address!)} — {xlmBalance.toFixed(2)} XLM
+                </div>
+              )}
+              <div style={{ display: 'flex', justifyContent: 'center' }}>
+                <WalletButton />
+              </div>
+            </div>
+          </div>
+
+          {/* Copyright */}
+          <div
+            style={{
+              fontFamily: "'Press Start 2P', monospace",
+              fontSize: 6,
+              color: '#7C7C7C',
+              marginTop: 12,
+              WebkitFontSmoothing: 'none',
+            }}
+          >
+            © 2024 REDIIT CORE — STELLAR TESTNET
+          </div>
         </div>
       </div>
     </div>

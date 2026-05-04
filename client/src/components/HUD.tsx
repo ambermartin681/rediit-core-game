@@ -1,31 +1,30 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useWalletStore } from '@/stores/walletStore'
 import { usePlayerStore } from '@/stores/playerStore'
-import { useGameStore } from '@/stores/gameStore'
-import { axumClient } from '@/lib/axumClient'
-import { contractClient } from '@/lib/contractClient'
-import { TxToast, TxState } from './TxToast'
-import { Minimap } from './Minimap'
 
 function truncate(addr: string) {
   return `${addr.slice(0, 4)}...${addr.slice(-4)}`
 }
 
 interface HUDProps {
+  coins: number
+  timer: number
+  lives: number
   onPause: () => void
 }
 
-export function HUD({ onPause }: HUDProps) {
-  const { address, xlmBalance, tokenBalance } = useWalletStore()
-  const { hp, sessionScore, activeBuffs } = usePlayerStore()
-  const { phase } = useGameStore()
-  const [txState, setTxState] = useState<TxState | null>(null)
-  const [txHash, setTxHash] = useState<string | undefined>()
-  const [txError, setTxError] = useState<string | undefined>()
-  const [cooldown, setCooldown] = useState(false)
-  const [prevScore, setPrevScore] = useState(sessionScore)
+const S: React.CSSProperties = {
+  fontFamily: "'Press Start 2P', monospace",
+  WebkitFontSmoothing: 'none' as const,
+  letterSpacing: '0.05em',
+}
+
+export function HUD({ coins, timer, lives, onPause }: HUDProps) {
+  const { address, xlmBalance } = useWalletStore()
+  const { sessionScore, hp, activeBuffs } = usePlayerStore()
   const [scorePop, setScorePop] = useState(false)
-  const cooldownRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const [prevScore, setPrevScore] = useState(sessionScore)
+  const [walletBlink, setWalletBlink] = useState(true)
 
   useEffect(() => {
     if (sessionScore !== prevScore) {
@@ -35,104 +34,124 @@ export function HUD({ onPause }: HUDProps) {
     }
   }, [sessionScore, prevScore])
 
-  const handleSaveScore = async () => {
-    if (!address || cooldown) return
-    setCooldown(true)
-    setTxState('signing')
-    setTxError(undefined)
-    try {
-      await axumClient.submitScore(address, sessionScore)
-      setTxState('submitting')
-      const hash = await contractClient.updateScoreOnChain(address, sessionScore)
-      setTxHash(hash)
-      setTxState('confirmed')
-    } catch (e) {
-      setTxError(e instanceof Error ? e.message : 'Unknown error')
-      setTxState('failed')
+  useEffect(() => {
+    if (!address) {
+      const t = setInterval(() => setWalletBlink((b) => !b), 500)
+      return () => clearInterval(t)
     }
-    cooldownRef.current = setTimeout(() => setCooldown(false), 30000)
-  }
+  }, [address])
 
-  useEffect(() => () => { if (cooldownRef.current) clearTimeout(cooldownRef.current) }, [])
-
-  if (phase !== 'playing' && phase !== 'paused') return null
-
-  const BUFF_ICONS: Record<string, string> = {
-    Speed: '⚡', Shield: '🛡', Multiplier: '×2', Cloak: '👁',
-  }
+  const timerRed = timer < 100
 
   return (
-    <>
-      {/* TOP-LEFT */}
-      <div className="absolute top-3 left-3 flex flex-col gap-1 pointer-events-none">
-        <div className="flex items-center gap-2">
-          <div className="w-6 h-6 bg-primary flex items-center justify-center text-xs">👾</div>
-          {address && <span className="font-mono text-xs text-accent">{truncate(address)}</span>}
-        </div>
-        {/* HP bar */}
-        <div className="flex gap-0.5">
-          {Array.from({ length: 5 }).map((_, i) => (
-            <div key={i} className={`hp-segment${i >= hp ? ' empty' : ''}`} />
-          ))}
-        </div>
-        {/* Score */}
-        <div className={`font-pixel text-xs text-success ${scorePop ? 'score-pop' : ''}`}>
+    <div
+      style={{
+        position: 'absolute',
+        top: 0, left: 0, right: 0,
+        height: 32,
+        background: '#000',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        padding: '0 8px',
+        zIndex: 10,
+        pointerEvents: 'none',
+      }}
+    >
+      {/* REDIIT + score */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 2, minWidth: 80 }}>
+        <span style={{ ...S, fontSize: 6, color: '#FCFCFC' }}>REDIIT</span>
+        <span
+          style={{
+            ...S,
+            fontSize: 8,
+            color: scorePop ? '#FAB005' : '#FCFCFC',
+            transform: scorePop ? 'scale(1.3)' : 'scale(1)',
+            transition: 'transform 0.1s, color 0.1s',
+          }}
+        >
           {String(sessionScore).padStart(6, '0')}
-        </div>
-        {/* Active buffs */}
-        {activeBuffs.length > 0 && (
-          <div className="flex gap-1">
-            {activeBuffs.map((b) => (
-              <span key={b.type} className="font-pixel text-xs bg-surface border border-border px-1">
-                {BUFF_ICONS[b.type] ?? b.type}
-              </span>
-            ))}
-          </div>
+        </span>
+      </div>
+
+      {/* COINS */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 2, alignItems: 'center' }}>
+        <span style={{ ...S, fontSize: 6, color: '#FCFCFC' }}>COINS</span>
+        <span style={{ ...S, fontSize: 8, color: '#FAB005' }}>
+          ×{String(coins).padStart(2, '0')}
+        </span>
+      </div>
+
+      {/* WORLD */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 2, alignItems: 'center' }}>
+        <span style={{ ...S, fontSize: 6, color: '#FCFCFC' }}>WORLD</span>
+        <span style={{ ...S, fontSize: 8, color: '#FCFCFC' }}>1-1</span>
+      </div>
+
+      {/* TIME */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 2, alignItems: 'center' }}>
+        <span style={{ ...S, fontSize: 6, color: '#FCFCFC' }}>TIME</span>
+        <span
+          style={{
+            ...S,
+            fontSize: 8,
+            color: timerRed ? '#E40058' : '#FCFCFC',
+            animation: timerRed ? 'nes-blink 0.5s step-end infinite' : 'none',
+          }}
+        >
+          {String(timer).padStart(3, '0')}
+        </span>
+      </div>
+
+      {/* WALLET */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 2, alignItems: 'center', minWidth: 100 }}>
+        <span style={{ ...S, fontSize: 6, color: '#FCFCFC' }}>WALLET</span>
+        {address ? (
+          <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 8, color: '#00A800' }}>
+            {truncate(address)}
+          </span>
+        ) : (
+          <span style={{ ...S, fontSize: 6, color: walletBlink ? '#FAB005' : 'transparent' }}>
+            NO WALLET
+          </span>
+        )}
+        {address && (
+          <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 7, color: '#00FF94' }}>
+            {xlmBalance.toFixed(2)} XLM
+          </span>
         )}
       </div>
 
-      {/* TOP-RIGHT */}
-      <div className="absolute top-3 right-3 flex flex-col items-end gap-1 pointer-events-none">
-        <span className="font-pixel text-xs bg-yellow-600 text-black px-2 py-0.5">TESTNET</span>
-        <span className="font-mono text-xs text-success">{xlmBalance.toFixed(4)} XLM</span>
-        <span className="font-mono text-xs text-accent">{tokenBalance.toFixed(0)} RDIIT</span>
+      {/* LIVES */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 2, alignItems: 'center' }}>
+        <span style={{ ...S, fontSize: 6, color: '#FCFCFC' }}>LIVES</span>
+        <span style={{ ...S, fontSize: 8, color: '#FCFCFC' }}>×{lives}</span>
       </div>
 
-      {/* BOTTOM-LEFT: minimap */}
-      <div className="absolute bottom-3 left-3 pointer-events-none">
-        <Minimap />
+      {/* POWER-UP */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 2, alignItems: 'center', minWidth: 48 }}>
+        <span style={{ ...S, fontSize: 6, color: '#FCFCFC' }}>POWER</span>
+        <span style={{ ...S, fontSize: 6, color: '#FAB005' }}>
+          {activeBuffs.length > 0 ? activeBuffs[0].type.toUpperCase().slice(0, 5) : '-----'}
+        </span>
       </div>
 
-      {/* BOTTOM-CENTER: action bar */}
-      <div className="absolute bottom-3 left-1/2 -translate-x-1/2 pointer-events-none">
-        <p className="font-pixel text-xs text-gray-500">WASD Move · E Interact · ESC Menu</p>
-      </div>
-
-      {/* BOTTOM-RIGHT: save score */}
-      <div className="absolute bottom-3 right-3 flex flex-col items-end gap-2">
-        <button
-          onClick={handleSaveScore}
-          disabled={cooldown || !address}
-          className="font-pixel text-xs bg-success text-black px-3 py-2 hover:opacity-80 transition-opacity disabled:opacity-40 disabled:cursor-not-allowed pointer-events-auto"
-        >
-          {cooldown ? 'SAVED (30s)' : 'SAVE SCORE'}
-        </button>
-        <button
-          onClick={onPause}
-          className="font-pixel text-xs border border-border text-gray-400 px-3 py-2 hover:border-primary hover:text-white transition-colors pointer-events-auto"
-        >
-          ESC / PAUSE
-        </button>
-      </div>
-
-      {txState && (
-        <TxToast
-          state={txState}
-          txHash={txHash}
-          error={txError}
-          onClose={() => setTxState(null)}
-        />
-      )}
-    </>
+      {/* Pause button */}
+      <button
+        onClick={onPause}
+        style={{
+          ...S,
+          fontSize: 6,
+          color: '#FCFCFC',
+          background: 'none',
+          border: '1px solid #FCFCFC',
+          padding: '2px 6px',
+          cursor: 'pointer',
+          pointerEvents: 'auto',
+        }}
+      >
+        ESC
+      </button>
+    </div>
   )
 }

@@ -3,24 +3,47 @@ import { useWalletStore } from '@/stores/walletStore'
 import { usePlayerStore } from '@/stores/playerStore'
 import { axumClient } from '@/lib/axumClient'
 import { TxToast, TxState } from './TxToast'
+import { drawToad } from '@/engine/MarioSprites'
 import type { BuffType } from '@/stores/playerStore'
 
 interface Item {
   id: string
   name: string
   cost: number
-  description: string
+  desc: string
   buff: BuffType
   duration: number
-  icon: string
 }
 
 const ITEMS: Item[] = [
-  { id: 'item_01', name: 'Speed Boost',      cost: 2, description: 'Move 50% faster for 60 seconds',       buff: 'Speed',      duration: 60000,  icon: '⚡' },
-  { id: 'item_02', name: 'Shield Module',    cost: 5, description: '+3 HP blocks, lasts until hit',         buff: 'Shield',     duration: 300000, icon: '🛡' },
-  { id: 'item_03', name: 'Score Multiplier', cost: 3, description: '2× score for 90 seconds',               buff: 'Multiplier', duration: 90000,  icon: '×2' },
-  { id: 'item_04', name: 'Stellar Cloak',    cost: 8, description: 'Invisible to enemies for 30 seconds',   buff: 'Cloak',      duration: 30000,  icon: '👁' },
+  { id: 'item_01', name: 'SPEED MUSHROOM', cost: 2, desc: 'Move 50% faster', buff: 'Speed',      duration: 60000  },
+  { id: 'item_02', name: 'SHIELD STAR',    cost: 5, desc: '+3 HP, i-frames',  buff: 'Shield',     duration: 300000 },
+  { id: 'item_03', name: 'SCORE COIN ×2',  cost: 3, desc: '2× score mult',    buff: 'Multiplier', duration: 90000  },
+  { id: 'item_04', name: 'INVISICAPE',     cost: 8, desc: 'Enemies ignore you',buff: 'Cloak',      duration: 30000  },
 ]
+
+const S: React.CSSProperties = {
+  fontFamily: "'Press Start 2P', monospace",
+  WebkitFontSmoothing: 'none' as const,
+  letterSpacing: '0.05em',
+}
+
+// Inline Toad canvas
+function ToadIcon() {
+  return (
+    <canvas
+      width={32}
+      height={32}
+      style={{ imageRendering: 'pixelated' }}
+      ref={(el) => {
+        if (!el) return
+        const ctx = el.getContext('2d')
+        if (!ctx) return
+        drawToad(ctx, 0, 0)
+      }}
+    />
+  )
+}
 
 interface ItemShopModalProps {
   onClose: () => void
@@ -33,7 +56,7 @@ export function ItemShopModal({ onClose }: ItemShopModalProps) {
   const [txError, setTxError] = useState<string | undefined>()
   const [buying, setBuying] = useState<string | null>(null)
 
-  const ownedBuffTypes = new Set(activeBuffs.map((b) => b.type))
+  const ownedBuffs = new Set(activeBuffs.map((b) => b.type))
 
   const handleBuy = async (item: Item) => {
     if (!address || buying) return
@@ -53,54 +76,78 @@ export function ItemShopModal({ onClose }: ItemShopModalProps) {
   }
 
   return (
-    <div className="absolute inset-0 flex items-center justify-center z-40">
-      <div className="glass rounded-xl p-8 w-[480px] flex flex-col gap-4 modal-enter border border-success">
-        <div className="flex items-center justify-between">
-          <h2 className="font-pixel text-success text-xs">ITEM SHOP</h2>
-          <button onClick={onClose} className="text-gray-500 hover:text-white">✕</button>
+    <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 40, background: 'rgba(0,0,0,0.7)' }}>
+      <div
+        className="modal-enter"
+        style={{
+          background: '#000040',
+          border: '4px solid #FAB005',
+          padding: 24,
+          width: 480,
+          maxHeight: '90vh',
+          overflowY: 'auto',
+        }}
+      >
+        {/* Header */}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <ToadIcon />
+            <span style={{ ...S, fontSize: 10, color: '#FCFCFC' }}>TOAD'S SHOP</span>
+          </div>
+          <button onClick={onClose} style={{ ...S, fontSize: 8, color: '#FCFCFC', background: 'none', border: 'none', cursor: 'pointer' }}>✕</button>
         </div>
 
-        <p className="font-mono text-xs text-gray-400">Balance: <span className="text-success">{xlmBalance.toFixed(4)} XLM</span></p>
+        <div style={{ ...S, fontSize: 7, color: '#FAB005', marginBottom: 16 }}>
+          BALANCE: ▣ {xlmBalance.toFixed(2)} XLM
+        </div>
 
-        <div className="grid grid-cols-2 gap-3">
+        {/* 2×2 grid */}
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
           {ITEMS.map((item) => {
-            const owned = ownedBuffTypes.has(item.buff)
+            const owned = ownedBuffs.has(item.buff)
             const canAfford = xlmBalance >= item.cost
             return (
               <div
                 key={item.id}
-                className={`bg-surface p-4 flex flex-col gap-2 border transition-colors ${owned ? 'border-success' : 'border-border hover:border-accent'}`}
+                className={`qblock-card${owned ? ' used' : ''}`}
+                style={{ padding: 12, display: 'flex', flexDirection: 'column', gap: 8 }}
               >
-                <div className="flex items-center justify-between">
-                  <span className="text-2xl">{item.icon}</span>
-                  {owned && (
-                    <span className="font-pixel text-xs text-success bg-success/10 px-1">OWNED</span>
+                <div style={{ ...S, fontSize: 7, color: owned ? '#FCFCFC' : '#000' }}>{item.name}</div>
+                <div style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 9, color: owned ? '#AAAAAA' : '#382800' }}>{item.desc}</div>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 'auto' }}>
+                  <span style={{ ...S, fontSize: 7, color: owned ? '#AAAAAA' : '#382800' }}>▣ {item.cost} XLM</span>
+                  {owned ? (
+                    <span style={{ ...S, fontSize: 6, color: '#00A800' }}>OWNED</span>
+                  ) : (
+                    <button
+                      onClick={() => handleBuy(item)}
+                      disabled={!canAfford || buying === item.id}
+                      style={{
+                        ...S,
+                        fontSize: 6,
+                        background: canAfford ? '#E40058' : '#5C5C5C',
+                        color: '#FCFCFC',
+                        border: 'none',
+                        padding: '4px 8px',
+                        cursor: canAfford ? 'pointer' : 'not-allowed',
+                      }}
+                    >
+                      {buying === item.id ? '...' : 'BUY'}
+                    </button>
                   )}
-                </div>
-                <p className="font-pixel text-xs text-white">{item.name}</p>
-                <p className="font-ui text-xs text-gray-400">{item.description}</p>
-                <div className="flex items-center justify-between mt-auto">
-                  <span className="font-mono text-xs text-success">{item.cost} XLM</span>
-                  <button
-                    onClick={() => handleBuy(item)}
-                    disabled={!canAfford || buying === item.id}
-                    className="font-pixel text-xs bg-primary text-white px-3 py-1 hover:bg-purple-700 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-                  >
-                    {buying === item.id ? '...' : 'BUY'}
-                  </button>
                 </div>
               </div>
             )
           })}
         </div>
+
+        <div style={{ ...S, fontSize: 6, color: '#7C7C7C', marginTop: 16, textAlign: 'center' }}>
+          PRESS ↓ NEAR PIPE TO ENTER SHOP
+        </div>
       </div>
 
       {txState && (
-        <TxToast
-          state={txState}
-          error={txError}
-          onClose={() => setTxState(null)}
-        />
+        <TxToast state={txState} error={txError} onClose={() => setTxState(null)} />
       )}
     </div>
   )

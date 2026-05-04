@@ -1,82 +1,84 @@
-import { useGameStore } from '@/stores/gameStore'
-import { useWalletStore } from '@/stores/walletStore'
-import { useNavigate } from 'react-router-dom'
+import { useState } from 'react'
+
+const S: React.CSSProperties = {
+  fontFamily: "'Press Start 2P', monospace",
+  WebkitFontSmoothing: 'none' as const,
+  letterSpacing: '0.05em',
+}
 
 interface PauseMenuProps {
   onResume: () => void
   onShop: () => void
   onLeaderboard: () => void
+  onMenu: () => void
 }
 
-export function PauseMenu({ onResume, onShop, onLeaderboard }: PauseMenuProps) {
-  const { scanlines, volume, toggleScanlines, setVolume } = useGameStore()
-  const { disconnect } = useWalletStore()
-  const navigate = useNavigate()
+const OPTIONS = ['RESUME GAME', 'ITEM SHOP', 'LEADERBOARD', 'QUIT TO TITLE'] as const
 
-  const handleDisconnect = () => {
-    disconnect()
-    navigate('/')
+export function PauseMenu({ onResume, onShop, onLeaderboard, onMenu }: PauseMenuProps) {
+  const [idx, setIdx] = useState(0)
+
+  const handlers: Record<typeof OPTIONS[number], () => void> = {
+    'RESUME GAME': onResume,
+    'ITEM SHOP': onShop,
+    'LEADERBOARD': onLeaderboard,
+    'QUIT TO TITLE': onMenu,
+  }
+
+  const handleKey = (e: React.KeyboardEvent) => {
+    if (e.key === 'ArrowUp') setIdx((i) => Math.max(0, i - 1))
+    if (e.key === 'ArrowDown') setIdx((i) => Math.min(OPTIONS.length - 1, i + 1))
+    if (e.key === 'Enter') handlers[OPTIONS[idx]]()
   }
 
   return (
-    <div className="absolute inset-0 flex items-center justify-center z-40">
-      <div className="glass rounded-xl p-8 w-80 flex flex-col gap-4 modal-enter border border-primary">
-        <h2 className="font-pixel text-primary text-center text-sm">PAUSED</h2>
-
-        <button
-          onClick={onResume}
-          className="font-pixel text-xs bg-primary text-white py-3 hover:bg-purple-700 transition-colors"
-        >
-          ▶ RESUME
-        </button>
-
-        <button
-          onClick={onShop}
-          className="font-pixel text-xs border border-success text-success py-3 hover:bg-success hover:text-black transition-colors"
-        >
-          🛒 ITEM SHOP
-        </button>
-
-        <button
-          onClick={onLeaderboard}
-          className="font-pixel text-xs border border-accent text-accent py-3 hover:bg-accent hover:text-black transition-colors"
-        >
-          🏆 LEADERBOARD
-        </button>
-
-        <div className="border-t border-border pt-4 flex flex-col gap-3">
-          <p className="font-pixel text-xs text-gray-400">SETTINGS</p>
-
-          <label className="flex items-center justify-between">
-            <span className="font-pixel text-xs text-gray-300">Scanlines</span>
-            <button
-              onClick={toggleScanlines}
-              className={`w-10 h-5 rounded-full transition-colors ${scanlines ? 'bg-primary' : 'bg-border'}`}
-            >
-              <span className={`block w-4 h-4 rounded-full bg-white transition-transform mx-0.5 ${scanlines ? 'translate-x-5' : 'translate-x-0'}`} />
-            </button>
-          </label>
-
-          <label className="flex items-center justify-between gap-3">
-            <span className="font-pixel text-xs text-gray-300">Volume</span>
-            <input
-              type="range"
-              min={0}
-              max={1}
-              step={0.05}
-              value={volume}
-              onChange={(e) => setVolume(parseFloat(e.target.value))}
-              className="flex-1 accent-primary"
-            />
-          </label>
+    <div
+      style={{
+        position: 'absolute', inset: 0,
+        background: 'rgba(0,0,0,0.6)',
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        zIndex: 30,
+      }}
+      onKeyDown={handleKey}
+      tabIndex={0}
+      autoFocus
+    >
+      <div
+        style={{
+          background: '#000',
+          border: '4px solid #FCFCFC',
+          padding: '32px 48px',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 20,
+          alignItems: 'center',
+        }}
+      >
+        <span style={{ ...S, fontSize: 14, color: '#FCFCFC' }}>PAUSED</span>
+        <div style={{ width: '100%', height: 2, background: '#FCFCFC' }} />
+        {OPTIONS.map((opt, i) => (
+          <div
+            key={opt}
+            onClick={() => handlers[opt]()}
+            style={{
+              ...S,
+              fontSize: 8,
+              color: i === idx ? '#FAB005' : '#FCFCFC',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 12,
+              width: '100%',
+            }}
+            onMouseEnter={() => setIdx(i)}
+          >
+            <span style={{ opacity: i === idx ? 1 : 0 }}>►</span>
+            {opt}
+          </div>
+        ))}
+        <div style={{ ...S, fontSize: 6, color: '#7C7C7C', marginTop: 8 }}>
+          ↑↓ NAVIGATE · ENTER SELECT
         </div>
-
-        <button
-          onClick={handleDisconnect}
-          className="font-pixel text-xs border border-danger text-danger py-3 hover:bg-danger hover:text-white transition-colors mt-2"
-        >
-          ⏻ DISCONNECT
-        </button>
       </div>
     </div>
   )

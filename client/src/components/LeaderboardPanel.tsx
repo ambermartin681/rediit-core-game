@@ -6,27 +6,32 @@ import { axumClient } from '@/lib/axumClient'
 import { contractClient } from '@/lib/contractClient'
 import { TxToast, TxState } from './TxToast'
 
-interface LeaderboardPanelProps {
-  onClose: () => void
-}
-
 function truncate(addr: string) {
   return `${addr.slice(0, 6)}...${addr.slice(-4)}`
 }
 
-// Mock leaderboard data (real multi-player in Phase 3)
 const MOCK_LEADERS = [
-  { address: 'GBXYZ1234567890ABCDEF', score: 98420, lastActive: '2026-05-03' },
-  { address: 'GCABC9876543210FEDCBA', score: 87300, lastActive: '2026-05-04' },
-  { address: 'GDDEF1111222233334444', score: 76100, lastActive: '2026-05-02' },
-  { address: 'GEEFG5555666677778888', score: 65000, lastActive: '2026-05-01' },
-  { address: 'GFGHI9999000011112222', score: 54200, lastActive: '2026-04-30' },
-  { address: 'GGHIJ3333444455556666', score: 43100, lastActive: '2026-04-29' },
-  { address: 'GHIJK7777888899990000', score: 32000, lastActive: '2026-04-28' },
-  { address: 'GIJKL1234432112344321', score: 21500, lastActive: '2026-04-27' },
-  { address: 'GJKLM9876678998766789', score: 10800, lastActive: '2026-04-26' },
-  { address: 'GKLMN5432123454321234', score: 5400,  lastActive: '2026-04-25' },
+  { address: 'GBXYZ1234567890ABCDEF', score: 98420 },
+  { address: 'GCABC9876543210FEDCBA', score: 87300 },
+  { address: 'GDDEF1111222233334444', score: 76100 },
+  { address: 'GEEFG5555666677778888', score: 65000 },
+  { address: 'GFGHI9999000011112222', score: 54200 },
+  { address: 'GGHIJ3333444455556666', score: 43100 },
+  { address: 'GHIJK7777888899990000', score: 32000 },
+  { address: 'GIJKL1234432112344321', score: 21500 },
+  { address: 'GJKLM9876678998766789', score: 10800 },
+  { address: 'GKLMN5432123454321234', score: 5400  },
 ]
+
+const S: React.CSSProperties = {
+  fontFamily: "'Press Start 2P', monospace",
+  WebkitFontSmoothing: 'none' as const,
+  letterSpacing: '0.05em',
+}
+
+interface LeaderboardPanelProps {
+  onClose: () => void
+}
 
 export function LeaderboardPanel({ onClose }: LeaderboardPanelProps) {
   const { address } = useWalletStore()
@@ -34,6 +39,13 @@ export function LeaderboardPanel({ onClose }: LeaderboardPanelProps) {
   const [txState, setTxState] = useState<TxState | null>(null)
   const [txHash, setTxHash] = useState<string | undefined>()
   const [txError, setTxError] = useState<string | undefined>()
+  const [blinkOn, setBlinkOn] = useState(true)
+
+  // Blink for player row
+  useState(() => {
+    const t = setInterval(() => setBlinkOn((b) => !b), 500)
+    return () => clearInterval(t)
+  })
 
   const { data: profile } = useQuery({
     queryKey: ['player', address],
@@ -41,7 +53,12 @@ export function LeaderboardPanel({ onClose }: LeaderboardPanelProps) {
     enabled: !!address,
   })
 
-  const handleSyncOnChain = async () => {
+  const leaders = address
+    ? [...MOCK_LEADERS.slice(0, 9), { address, score: profile?.high_score ?? onChainScore }]
+        .sort((a, b) => b.score - a.score).slice(0, 10)
+    : MOCK_LEADERS
+
+  const handleSync = async () => {
     if (!address) return
     setTxState('signing')
     setTxError(undefined)
@@ -55,29 +72,42 @@ export function LeaderboardPanel({ onClose }: LeaderboardPanelProps) {
     }
   }
 
-  // Merge connected player into leaderboard
-  const leaders = address
-    ? [
-        ...MOCK_LEADERS.slice(0, 9),
-        { address, score: profile?.high_score ?? onChainScore, lastActive: 'Today' },
-      ].sort((a, b) => b.score - a.score).slice(0, 10)
-    : MOCK_LEADERS
+  const rankColor = (i: number) => {
+    if (i === 0) return '#FAB005'
+    if (i === 1) return '#AAAAAA'
+    if (i === 2) return '#C88000'
+    return '#FCFCFC'
+  }
 
   return (
-    <div className="absolute inset-0 flex items-center justify-center z-40">
-      <div className="glass rounded-xl p-8 w-[560px] flex flex-col gap-4 modal-enter border border-primary max-h-[90vh] overflow-y-auto">
-        <div className="flex items-center justify-between">
-          <h2 className="font-pixel text-primary text-xs">🏆 LEADERBOARD</h2>
-          <button onClick={onClose} className="text-gray-500 hover:text-white">✕</button>
+    <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 40, background: 'rgba(0,0,0,0.8)' }}>
+      <div
+        className="modal-enter"
+        style={{
+          background: '#000',
+          border: '4px solid #FAB005',
+          padding: 24,
+          width: 520,
+          maxHeight: '90vh',
+          overflowY: 'auto',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 12,
+        }}
+      >
+        {/* Header */}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <span style={{ ...S, fontSize: 10, color: '#FAB005' }}>🏆 HIGH SCORES</span>
+          <button onClick={onClose} style={{ ...S, fontSize: 8, color: '#FCFCFC', background: 'none', border: 'none', cursor: 'pointer' }}>✕</button>
         </div>
 
-        <table className="w-full text-xs">
+        {/* Table */}
+        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
           <thead>
-            <tr className="border-b border-border">
-              <th className="font-pixel text-gray-400 text-left py-2 w-8">#</th>
-              <th className="font-pixel text-gray-400 text-left py-2">ADDRESS</th>
-              <th className="font-pixel text-gray-400 text-right py-2">SCORE</th>
-              <th className="font-pixel text-gray-400 text-right py-2">LAST ACTIVE</th>
+            <tr style={{ borderBottom: '2px solid #FAB005' }}>
+              <th style={{ ...S, fontSize: 6, color: '#7C7C7C', textAlign: 'left', padding: '4px 0', width: 24 }}>#</th>
+              <th style={{ ...S, fontSize: 6, color: '#7C7C7C', textAlign: 'left', padding: '4px 0' }}>ADDRESS</th>
+              <th style={{ ...S, fontSize: 6, color: '#7C7C7C', textAlign: 'right', padding: '4px 0' }}>SCORE</th>
             </tr>
           </thead>
           <tbody>
@@ -86,52 +116,60 @@ export function LeaderboardPanel({ onClose }: LeaderboardPanelProps) {
               return (
                 <tr
                   key={row.address}
-                  className={`border-b border-border/50 ${isMe ? 'bg-primary/10' : ''}`}
+                  style={{
+                    borderBottom: '1px solid #1C1C1C',
+                    background: isMe && blinkOn ? 'rgba(252,252,252,0.1)' : 'transparent',
+                  }}
                 >
-                  <td className={`font-pixel py-2 ${i === 0 ? 'text-yellow-400' : i === 1 ? 'text-gray-300' : i === 2 ? 'text-yellow-700' : 'text-gray-500'}`}>
-                    {i + 1}
+                  <td style={{ ...S, fontSize: 7, color: rankColor(i), padding: '6px 0' }}>{i + 1}</td>
+                  <td style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 9, color: isMe ? '#FAB005' : '#FCFCFC', padding: '6px 0' }}>
+                    {truncate(row.address)}{isMe ? ' ◄ YOU' : ''}
                   </td>
-                  <td className={`font-mono py-2 ${isMe ? 'text-accent' : 'text-gray-300'}`}>
-                    {truncate(row.address)} {isMe && '← YOU'}
+                  <td style={{ ...S, fontSize: 7, color: '#FAB005', textAlign: 'right', padding: '6px 0' }}>
+                    {row.score.toLocaleString()}
                   </td>
-                  <td className="font-mono text-success text-right py-2">{row.score.toLocaleString()}</td>
-                  <td className="font-mono text-gray-500 text-right py-2">{row.lastActive}</td>
                 </tr>
               )
             })}
           </tbody>
         </table>
 
-        {/* YOUR STATS */}
-        <div className="border-t border-border pt-4 flex flex-col gap-2">
-          <p className="font-pixel text-xs text-gray-400">YOUR STATS</p>
-          <div className="grid grid-cols-2 gap-2">
-            <div className="bg-surface border border-border p-3">
-              <p className="font-pixel text-xs text-gray-500">ON-CHAIN HIGH SCORE</p>
-              <p className="font-mono text-success text-lg">{(profile?.high_score ?? onChainScore).toLocaleString()}</p>
-            </div>
-            <div className="bg-surface border border-border p-3">
-              <p className="font-pixel text-xs text-gray-500">SESSION BEST</p>
-              <p className="font-mono text-accent text-lg">{sessionScore.toLocaleString()}</p>
-            </div>
+        {/* Stats */}
+        <div style={{ borderTop: '2px solid #FAB005', paddingTop: 12, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+          <div style={{ background: '#0C0C0C', border: '2px solid #3C3C3C', padding: 8 }}>
+            <div style={{ ...S, fontSize: 6, color: '#7C7C7C', marginBottom: 4 }}>ON-CHAIN HIGH</div>
+            <div style={{ ...S, fontSize: 9, color: '#FAB005' }}>{(profile?.high_score ?? onChainScore).toLocaleString()}</div>
           </div>
-          <button
-            onClick={handleSyncOnChain}
-            disabled={!address || !!txState}
-            className="font-pixel text-xs bg-primary text-white py-3 hover:bg-purple-700 transition-colors disabled:opacity-40 disabled:cursor-not-allowed mt-2"
-          >
-            SYNC SCORE ON-CHAIN
-          </button>
+          <div style={{ background: '#0C0C0C', border: '2px solid #3C3C3C', padding: 8 }}>
+            <div style={{ ...S, fontSize: 6, color: '#7C7C7C', marginBottom: 4 }}>SESSION BEST</div>
+            <div style={{ ...S, fontSize: 9, color: '#FCFCFC' }}>{sessionScore.toLocaleString()}</div>
+          </div>
         </div>
+
+        {/* Sync button styled as flagpole */}
+        <button
+          onClick={handleSync}
+          disabled={!address || !!txState}
+          style={{
+            ...S,
+            fontSize: 8,
+            background: !address || !!txState ? '#3C3C3C' : '#00A800',
+            color: '#FCFCFC',
+            border: 'none',
+            padding: '12px',
+            cursor: !address || !!txState ? 'not-allowed' : 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: 8,
+          }}
+        >
+          🚩 FLAG POLE — SYNC ON-CHAIN
+        </button>
       </div>
 
       {txState && (
-        <TxToast
-          state={txState}
-          txHash={txHash}
-          error={txError}
-          onClose={() => setTxState(null)}
-        />
+        <TxToast state={txState} txHash={txHash} error={txError} onClose={() => setTxState(null)} />
       )}
     </div>
   )
