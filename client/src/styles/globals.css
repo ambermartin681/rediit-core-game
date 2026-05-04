@@ -1,0 +1,246 @@
+@import 'tailwindcss';
+
+@layer base {
+  :root {
+    --color-bg: #0a0a0f;
+    --color-primary: #7000ff;
+    --color-accent: #00cfff;
+    --color-success: #00ff94;
+    --color-danger: #ff3b6f;
+    --color-surface: #13131f;
+    --color-border: #2a2a3f;
+  }
+
+  * {
+    box-sizing: border-box;
+  }
+
+  html,
+  body,
+  #root {
+    margin: 0;
+    padding: 0;
+    width: 100%;
+    height: 100%;
+    background: var(--color-bg);
+    color: #fff;
+    font-family: 'Inter', sans-serif;
+  }
+}
+
+/* ── Pixel rendering ─────────────────────────────────────── */
+.pixel-render {
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+}
+
+/* ── CRT glow ────────────────────────────────────────────── */
+.crt-glow {
+  box-shadow:
+    0 0 8px var(--color-primary),
+    0 0 20px rgba(112, 0, 255, 0.4),
+    inset 0 0 8px rgba(112, 0, 255, 0.1);
+}
+
+.crt-glow-cyan {
+  box-shadow:
+    0 0 8px var(--color-accent),
+    0 0 20px rgba(0, 207, 255, 0.4);
+}
+
+/* ── Pixel border (sharp, no radius) ─────────────────────── */
+.pixel-border {
+  border: 2px solid var(--color-border);
+  border-radius: 0;
+}
+
+.pixel-border-primary {
+  border: 2px solid var(--color-primary);
+  border-radius: 0;
+}
+
+.pixel-border-accent {
+  border: 2px solid var(--color-accent);
+  border-radius: 0;
+}
+
+/* ── Scanline overlay ────────────────────────────────────── */
+.scanlines {
+  position: relative;
+  overflow: hidden;
+}
+
+.scanlines::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: repeating-linear-gradient(
+    to bottom,
+    transparent 0px,
+    transparent 2px,
+    rgba(0, 0, 0, 0.18) 2px,
+    rgba(0, 0, 0, 0.18) 4px
+  );
+  pointer-events: none;
+  z-index: 10;
+}
+
+/* ── Glass morphism modal ────────────────────────────────── */
+.glass {
+  background: rgba(19, 19, 31, 0.75);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid var(--color-border);
+}
+
+/* ── Glitch animation ────────────────────────────────────── */
+@keyframes glitch {
+  0%,
+  100% {
+    text-shadow:
+      2px 0 var(--color-accent),
+      -2px 0 var(--color-danger);
+    transform: translate(0);
+  }
+  20% {
+    text-shadow:
+      -2px 0 var(--color-accent),
+      2px 0 var(--color-danger);
+    transform: translate(-2px, 1px);
+  }
+  40% {
+    text-shadow:
+      2px 0 var(--color-danger),
+      -2px 0 var(--color-accent);
+    transform: translate(2px, -1px);
+  }
+  60% {
+    text-shadow:
+      0 0 var(--color-primary);
+    transform: translate(0);
+  }
+}
+
+.glitch {
+  animation: glitch 3s infinite;
+}
+
+/* ── Pulse glow button ───────────────────────────────────── */
+@keyframes pulse-glow {
+  0%,
+  100% {
+    box-shadow:
+      0 0 10px var(--color-primary),
+      0 0 30px rgba(112, 0, 255, 0.5);
+  }
+  50% {
+    box-shadow:
+      0 0 20px var(--color-primary),
+      0 0 60px rgba(112, 0, 255, 0.8),
+      0 0 80px rgba(0, 207, 255, 0.3);
+  }
+}
+
+.pulse-glow {
+  animation: pulse-glow 2s ease-in-out infinite;
+}
+
+/* ── Orb pulse ───────────────────────────────────────────── */
+@keyframes orb-pulse {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.6;
+    transform: scale(1.15);
+  }
+}
+
+/* ── Modal open/close transitions ───────────────────────── */
+.modal-enter {
+  animation: modal-in 0.2s ease-out forwards;
+}
+
+.modal-exit {
+  animation: modal-out 0.15s ease-in forwards;
+}
+
+@keyframes modal-in {
+  from {
+    opacity: 0;
+    transform: scale(0.92) translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+@keyframes modal-out {
+  from {
+    opacity: 1;
+    transform: scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: scale(0.92);
+  }
+}
+
+/* ── Score counter animation ─────────────────────────────── */
+@keyframes score-pop {
+  0% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.3);
+    color: var(--color-success);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+.score-pop {
+  animation: score-pop 0.3s ease-out;
+}
+
+/* ── HP bar segments ─────────────────────────────────────── */
+.hp-segment {
+  width: 18px;
+  height: 14px;
+  border: 1px solid rgba(255, 59, 111, 0.5);
+  background: var(--color-danger);
+  display: inline-block;
+  margin-right: 2px;
+}
+
+.hp-segment.empty {
+  background: rgba(255, 59, 111, 0.15);
+}
+
+/* ── Canvas wrapper ──────────────────────────────────────── */
+#game-canvas-wrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+#game-canvas {
+  display: block;
+  image-rendering: pixelated;
+}
+
+/* ── Scrollbar ───────────────────────────────────────────── */
+::-webkit-scrollbar {
+  width: 6px;
+}
+::-webkit-scrollbar-track {
+  background: var(--color-surface);
+}
+::-webkit-scrollbar-thumb {
+  background: var(--color-primary);
+}
